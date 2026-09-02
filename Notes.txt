@@ -1,0 +1,9 @@
+
+If you are using this with Unreal Engine < 5.5:
+
+Open UnrealLua.uplugin file
+Add this to the "Plugins" section:
+{
+	"Name": "StructUtils",
+	"Enabled": true
+}

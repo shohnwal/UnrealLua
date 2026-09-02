@@ -1,0 +1,22 @@
+limitations:
+- Do not use hardcoded Blueprint paths in functions that are called by Class-Default-Objects, like constructors!
+UnrealLua compiles types at engine startup finish, AFTER ALL the game modules have loaded, so it has access to all C++ classes of the game and plugins:
+
+Unreal engine start -> Core modules -> Game module -> UnrealLua module -> Engine start finished -> UnrealLua compiler runs
+
+This poses a depencency problem if your game module has C++ code that loads a hardcoded Blueprint during Class-Default-Object construction.
+For example:
+
+AMyGameMode::AMyGameMode()
+{
+    ConstructorHelpers::FClassFinder<APawn> PlayerPawnClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter"));
+    DefaultPawnClass = PlayerPawnClassFinder.Class;
+    //
+}
+
+What if the Blueprint "BP_FirstPersonCharacter" required an UnrealLua compiled type? The Blueprint is loaded before the UnrealLua compiler 
+had a chance to run, causing an "invalid-type" error. 
+
+If you want to use paths to Blueprints in your C++ code, use alternatives such as FSoftClassPath, FSoftObjectPath or 
+TSoftObjectPath<> to lazily load the Blueprints (which is recommended anyways to handle Blueprint paths). Alternatively, you can move 
+loading of hardcoded Blueprint paths into code that is not run by the CDO, like AActor::PreinitializeComponents or AActor::BeginPlay
