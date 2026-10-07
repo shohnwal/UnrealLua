@@ -65,35 +65,21 @@ FLuaScriptInstanceHandle FScopedLuaContext::GetLuaScriptHandle(const FLuaScriptS
 	return FLuaScriptInstanceHandle{collection};
 }
 
-sol::table FScopedLuaContext::ImportLuaScript(const std::string_view path, bool bAllowModding, bool bTrackScript)
+sol::table FScopedLuaContext::ImportLuaScript(const std::string_view path, bool bAllowModding)
 {
-	return this->ImportLuaScript(std::string(path), bAllowModding, bTrackScript);
+	return this->ImportLuaScript(std::string(path), bAllowModding);
 }
 
 //used by lua runtime via "require" and by "mixin" and from Dynamic Enum Handler
-sol::table FScopedLuaContext::ImportLuaScript(const std::string& path, bool bAllowModding, bool bTrackScript)
+sol::table FScopedLuaContext::ImportLuaScript(const std::string& path, bool bAllowModding)
 {
-	if(!bTrackScript)
-	{
-		return this->LoadLuaScriptFromDisk(path, bAllowModding).FinalResult;
-	}
-	const FString fileNameString{path.c_str()};
-	return this->ImportLuaScript(fileNameString, bAllowModding, true);
+	return this->LoadLuaScriptFromDisk(path, bAllowModding).FinalResult;
 }
 
-sol::table FScopedLuaContext::ImportLuaScript(const FString& filePath, bool bAllowModding, bool bTrackScript)
+sol::table FScopedLuaContext::ImportLuaScript(const FString& filePath, bool bAllowModding)
 {
-	if(!bTrackScript)
-	{
-		const std::string path = StringCast<char>(*filePath).Get();
-		return this->ImportLuaScript(path, bAllowModding, false);
-	}
-	ULoadedLuaScriptCollection* collection = this->GetOrCreateLuaScriptCollection(*filePath);
-	if(collection)
-	{
-		return collection->GetLuaScriptAsTable(bTrackScript);	
-	}
-	return sol::nil;
+	const std::string path = StringCast<char>(*filePath).Get();
+	return this->ImportLuaScript(path, bAllowModding);
 }
 
 void FScopedLuaContext::MixinScript(sol::stack_object mixinPath, sol::this_state lua)
@@ -165,7 +151,7 @@ void FScopedLuaContext::MixinScript(sol::stack_object mixinPath, sol::this_state
 		path = mixinPathStr.data();	
 	}
 	int32 numPreImport = this->ImportStack.Num();
-	sol::table mixinTable =  this->ImportLuaScript(path, true, false);
+	sol::table mixinTable =  this->ImportLuaScript(path, true);
 	int32 numPostImport = this->ImportStack.Num();
 	verify(numPreImport == numPostImport);
 	
@@ -405,9 +391,9 @@ FLoadLuaScriptResult FScopedLuaContext::LoadLuaScriptFromDisk(const FString& fil
 	return LoadLuaScriptFromDisk(pathStr, bAllowModding, luaPathOverride, requiredFlags, excludedLocationFlags);
 }
 
-FLoadLuaScriptResult FScopedLuaContext::LoadLuaScriptFromDisk(const std::string& opath, bool bAllowMods, const FLuaPath* luaPathOverride, ELuaPathFlags requiredFlags, ELuaPathFlags excludedLocationFlags)
+FLoadLuaScriptResult FScopedLuaContext::LoadLuaScriptFromDisk(const std::string_view& opath, bool bAllowMods, const FLuaPath* luaPathOverride, ELuaPathFlags requiredFlags, ELuaPathFlags excludedLocationFlags)
 {
-	std::string path = opath;
+	std::string path = opath.data();
 	
 	if(path.empty())
 	{

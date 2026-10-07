@@ -108,9 +108,9 @@ public:
 	//FLuaScriptInstanceHandle GetInstancedLuaScript(const FName& fileName, FLuaUObjectItem& scriptOwner);
 	FLuaScriptInstanceHandle GetLuaScriptHandle(const FLuaScriptSettings& scriptSettings);
 
-	sol::table ImportLuaScript(const std::string_view path, bool bAllowModding = true, bool bTrackScript = false);
-	sol::table ImportLuaScript(const std::string& path, bool bAllowModding = true, bool bTrackScript = false);
-	sol::table ImportLuaScript(const FString& filePath, bool bAllowModding = true, bool bTrackScript = false);
+	sol::table ImportLuaScript(const std::string_view path, bool bAllowModding = true);
+	sol::table ImportLuaScript(const std::string& path, bool bAllowModding = true);
+	sol::table ImportLuaScript(const FString& filePath, bool bAllowModding = true);
 	void MixinScript(sol::stack_object mixinPath, sol::this_state lua);
 	sol::protected_function_result RunScript(sol::stack_object mixinPath, sol::variadic_args args);
 	sol::protected_function_result RunScript(const std::string& mixinPath, sol::variadic_args args);
@@ -135,7 +135,7 @@ public:
 	 */
 	FLoadLuaScriptResult LoadLuaScriptFromDisk(const FString& string, bool bIsAbsolutePath, bool bAllowModding, const FLuaPath* luaPathOverride = nullptr, ELuaPathFlags requiredFlags = ELuaPathFlags::Any, ELuaPathFlags excludedLocationFlags = ELuaPathFlags::None);
 	FLoadLuaScriptResult LoadLuaScriptFromDisk(const FString& filePath,  bool bAllowModding, const FLuaPath* luaPathOverride = nullptr, ELuaPathFlags requiredFlags = ELuaPathFlags::Any, ELuaPathFlags excludedLocationFlags = ELuaPathFlags::None);
-	FLoadLuaScriptResult LoadLuaScriptFromDisk(const std::string& filePath, bool bAllowMods, const FLuaPath* luaPathOverride = nullptr, ELuaPathFlags requiredFlags = ELuaPathFlags::Any, ELuaPathFlags excludedLocationFlags = ELuaPathFlags::None);
+	FLoadLuaScriptResult LoadLuaScriptFromDisk(const std::string_view& filePath, bool bAllowMods, const FLuaPath* luaPathOverride = nullptr, ELuaPathFlags requiredFlags = ELuaPathFlags::Any, ELuaPathFlags excludedLocationFlags = ELuaPathFlags::None);
 	sol::table ModTable(const std::string& filePath, sol::table table, const FLuaPath* luaPathOverride = nullptr, ELuaPathFlags requiredFlags = ELuaPathFlags::Any, ELuaPathFlags excludedLocationFlags = ELuaPathFlags::None);
 	
 	/**
