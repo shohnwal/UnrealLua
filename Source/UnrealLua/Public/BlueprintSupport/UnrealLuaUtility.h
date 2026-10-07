@@ -25,8 +25,8 @@ class ULuaContextBlueprintBase;
 UENUM()
 enum class ELuaCallResult : uint8
 {
-	Success,
 	Failure,
+	Success,
 };
 
 typedef TMap<FString,FString> FStringMap;
@@ -130,14 +130,14 @@ public:
 	
 	//Create a Lua table
 	UFUNCTION(BlueprintCallable, meta=(DefaultToSelf=worldContext, ExpandBoolAsExecs="ReturnValue"))
-	static bool MakeLuaTable(UObject* worldContext, FLuaTableHandle& outNewTable);
+	static ELuaCallResult MakeLuaTable(UObject* worldContext, FLuaTableHandle& outNewTable);
 	
 	UFUNCTION(BlueprintCallable, Customthunk, meta=(ExpandBoolAsExecs="ReturnValue", CustomStructureParam="key,value"))
-	static bool SetValueInLuaTable(const FLuaTableHandle& table, const int32& key, const int32& value);
+	static ELuaCallResult SetValueInLuaTable(const FLuaTableHandle& table, const int32& key, const int32& value);
 	DECLARE_FUNCTION(execSetValueInLuaTable);
 	
 	UFUNCTION(BlueprintCallable, Customthunk, meta=(ExpandBoolAsExecs="ReturnValue", CustomStructureParam="key"))
-    static bool GetValueFromLuaTable(const FLuaTableHandle& table, const int32& key, FLuaValue& outValue);
+    static ELuaCallResult GetValueFromLuaTable(const FLuaTableHandle& table, const int32& key, FLuaValue& outValue);
     DECLARE_FUNCTION(execGetValueFromLuaTable);
 
 	UFUNCTION(BlueprintCallable, Customthunk, meta=(ExpandBoolAsExecs="ReturnValue", CustomStructureParam="key"))

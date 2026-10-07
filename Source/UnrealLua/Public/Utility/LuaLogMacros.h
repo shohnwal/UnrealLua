@@ -19,7 +19,7 @@ namespace UnrealLua::Log
 #ifdef LUA_LOGGING
 #define LUA_LOG_ERROR(str, ...) UnrealLua::Log::LogError(FString::Printf(TEXT(str), ##__VA_ARGS__));
 #define LUA_LOG_WARNING(str, ...) UnrealLua::Log::LogWarning(FString::Printf(TEXT(str), ##__VA_ARGS__));
-#define LUA_LOG(str, ...) UE_LOG(LuaLog, Log, TEXT(str), ##__VA_ARGS__);
+#define LUA_LOG(str, ...) UnrealLua::Log::LogWarning(FString::Printf(TEXT(str), ##__VA_ARGS__));
 #define LUA_LOG_CONDITIONAL(cond, str, ...) if(cond) { UUnrealLua::Log::Log(FString::Printf(TEXT(str), ##__VA_ARGS__));}
 	//SET_WARN_COLOR(COLOR_CYAN);\
 	//\

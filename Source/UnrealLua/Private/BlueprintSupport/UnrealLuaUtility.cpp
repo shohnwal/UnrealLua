@@ -346,31 +346,31 @@ void UUnrealLuaUtility::ScanForLuaClasses()
 	*(TArray<FLuaValue>*)RESULT_PARAM = outArr;
 }
 
-bool UUnrealLuaUtility::MakeLuaTable(UObject* worldContext, FLuaTableHandle& outNewTable)
+ELuaCallResult UUnrealLuaUtility::MakeLuaTable(UObject* worldContext, FLuaTableHandle& outNewTable)
 {
 	outNewTable = {};
 	TScriptInterface<ILuaContext> ctx{};
 	if(!GetLuaContextFromWorldContext(worldContext, ctx))
 	{
-		return false;
+		return ELuaCallResult::Failure;
 	}
 	if(!ctx->GetScopedLuaContext().IsLuaLoaded())
 	{
-		return false;
+		return ELuaCallResult::Failure;
 	}
 	FLuaTableHandle newTable = ctx->GetScopedLuaContext().CreateNewLuaTable();
 	if (!newTable.IsValid())
 	{
-		return false;
+		return ELuaCallResult::Failure;
 	}
 	outNewTable = newTable;
-	return outNewTable.IsValid();
+	return outNewTable.IsValid() ? ELuaCallResult::Success : ELuaCallResult::Failure;
 }
 
-bool UUnrealLuaUtility::SetValueInLuaTable(const FLuaTableHandle& table, const int32& key, const int32& value)
+ELuaCallResult UUnrealLuaUtility::SetValueInLuaTable(const FLuaTableHandle& table, const int32& key, const int32& value)
 {
 	checkNoEntry();
-	return false;
+	return ELuaCallResult::Failure;
 }
 
 DEFINE_FUNCTION(UUnrealLuaUtility::execSetValueInLuaTable)
@@ -392,7 +392,7 @@ DEFINE_FUNCTION(UUnrealLuaUtility::execSetValueInLuaTable)
 	
 	if (!table.IsValid())
 	{
-		*(bool*)RESULT_PARAM = false;
+		*(ELuaCallResult*)RESULT_PARAM = ELuaCallResult::Failure;
 		return;
 	}
 	FLuaValue key{keyProp, keyProp->ContainerPtrToValuePtr<void>(keyValue)};
@@ -400,14 +400,14 @@ DEFINE_FUNCTION(UUnrealLuaUtility::execSetValueInLuaTable)
 	
 	table.NewIndex(key, value);
 	P_NATIVE_END
-	*(bool*)RESULT_PARAM = true;
+	*(ELuaCallResult*)RESULT_PARAM = ELuaCallResult::Success;
 	
 }
 
-bool UUnrealLuaUtility::GetValueFromLuaTable(const FLuaTableHandle& table, const int32& key, FLuaValue& outValue)
+ELuaCallResult UUnrealLuaUtility::GetValueFromLuaTable(const FLuaTableHandle& table, const int32& key, FLuaValue& outValue)
 {
 	checkNoEntry();
-	return false;
+	return ELuaCallResult::Failure;
 }
 
 DEFINE_FUNCTION(UUnrealLuaUtility::execGetValueFromLuaTable)
@@ -428,7 +428,7 @@ DEFINE_FUNCTION(UUnrealLuaUtility::execGetValueFromLuaTable)
 	
 	if (!tableRef.IsValid())
 	{
-		*(bool*)RESULT_PARAM = false;
+		*(ELuaCallResult*)RESULT_PARAM = ELuaCallResult::Failure;
 		return;
 	}
 	FLuaValue key{keyProp, keyProp->ContainerPtrToValuePtr<void>(keyValue)};
@@ -436,7 +436,7 @@ DEFINE_FUNCTION(UUnrealLuaUtility::execGetValueFromLuaTable)
 	valueRef = tableRef.Index(key);
 	valueRef.ClearIsScriptValue();
 	valueRef.ConvertLuaObjectsToHandles();
-	*(bool*)RESULT_PARAM = true;
+	*(ELuaCallResult*)RESULT_PARAM = ELuaCallResult::Success;
 	P_NATIVE_END
 }
 
