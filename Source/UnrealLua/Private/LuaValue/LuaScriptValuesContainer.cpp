@@ -65,6 +65,11 @@ TArray<FLuaScriptValue>& FLuaScriptValuesContainer::GetLuaScriptValues()
 	return this->LuaScriptValues;
 }
 
+const TArray<FLuaScriptValue>& FLuaScriptValuesContainer::GetLuaScriptValues() const
+{
+	return this->LuaScriptValues;
+}
+
 bool FLuaScriptValuesContainer::GetScriptValue(const std::string_view& key, FProperty* targetProperty, void* targetMemAddress)
 {
 	FLuaScriptValue* val = this->GetLuaScriptValue(key);
@@ -169,12 +174,16 @@ void FLuaScriptValuesContainer::EmptyAllLuaScriptValues()
 {
 	this->LuaScriptValues.Empty();
 	this->SetNetDirty();
-	this->OnNumberOfValuesChanged.Broadcast();
 }
 
 bool FLuaScriptValuesContainer::HasAnyLuaScriptValues() const
 {
 	return !this->LuaScriptValues.IsEmpty();
+}
+
+int32 FLuaScriptValuesContainer::GetNumLuaScriptValues() const
+{
+	return this->LuaScriptValues.Num();
 }
 
 void FLuaScriptValuesContainer::CleanUpLuaScriptValuesForLuaState(lua_State* L)
@@ -186,6 +195,35 @@ void FLuaScriptValuesContainer::CleanUpLuaScriptValuesForLuaState(lua_State* L)
 	this->SetNetDirty();
 }
 
+
+void FLuaScriptValuesContainer::SetScriptValue(const FLuaScriptValueKey& key, const FLuaValue& value, bool bCallNotify)
+{
+	FLuaScriptValue* val = this->GetLuaScriptValueOrCreateEmpty(key.GetKeyName(), true);
+	if (val)
+	{
+		val->SetScriptValue(value);
+		if (bCallNotify)
+		{
+			val->BroadcastValue();
+		}
+	}
+}
+
+
+void FLuaScriptValuesContainer::SetScriptValue(const FLuaScriptValue& value, bool bCallNotify)
+{
+	FLuaScriptValue* val = this->GetLuaScriptValueOrCreateEmpty(value.GetKeyName(), true);
+	if (val)
+	{
+		val->SetScriptValue(value.GetLuaValue());
+		if (bCallNotify)
+		{
+			val->BroadcastValue();
+		}
+	}
+}
+
+
 FLuaScriptValue* FLuaScriptValuesContainer::SetPropertyWrapperLuaScriptValue(const FSetLuaScriptUObjectMemberPropertyWrapperParams params)
 {
 	FLuaScriptValue* scriptValue = this->GetLuaScriptValueInternal(params.PropMapping.GetMappingFName().ToString());
@@ -196,7 +234,6 @@ FLuaScriptValue* FLuaScriptValuesContainer::SetPropertyWrapperLuaScriptValue(con
 		auto casted = StringCast<char>(*params.GetMappingFName().ToString()); 
 		std::string_view strv = casted.Get();
 		scriptValue->SetKey(strv);
-		this->OnNumberOfValuesChanged.Broadcast();
 		//Since params doesn't contain any Lua function, no need to check for update tick func mappings
 	}
 	else
@@ -280,7 +317,6 @@ FLuaScriptValue* FLuaScriptValuesContainer::GetLuaScriptValueOrCreateEmpty(const
 				FSetLuaScriptUObjectMemberPropertyWrapperParams params{owner, *mapping};
 				scriptValue = &this->LuaScriptValues.Emplace_GetRef(params);
 				scriptValue->SetKey(key);
-				this->OnNumberOfValuesChanged.Broadcast();
 				return scriptValue;
 			}
 		}
@@ -291,7 +327,6 @@ FLuaScriptValue* FLuaScriptValuesContainer::GetLuaScriptValueOrCreateEmpty(const
 		}
 		scriptValue = &this->LuaScriptValues.Emplace_GetRef();
 		scriptValue->SetKey(key);
-		this->OnNumberOfValuesChanged.Broadcast();
 	}
 	return scriptValue;
 }
@@ -312,7 +347,6 @@ FLuaScriptValue* FLuaScriptValuesContainer::GetLuaScriptValueOrCreateEmpty(const
 				FSetLuaScriptUObjectMemberPropertyWrapperParams params{owner, *mapping};
 				scriptValue = &this->LuaScriptValues.Emplace_GetRef(params);
 				scriptValue->SetKey(key);
-				this->OnNumberOfValuesChanged.Broadcast();
 				return scriptValue;
 			}
 		}
@@ -323,7 +357,6 @@ FLuaScriptValue* FLuaScriptValuesContainer::GetLuaScriptValueOrCreateEmpty(const
 		}
 		scriptValue = &this->LuaScriptValues.Emplace_GetRef();
 		scriptValue->SetKey(key);
-		this->OnNumberOfValuesChanged.Broadcast();
 	}
 	return scriptValue;
 }
@@ -558,7 +591,6 @@ void FLuaScriptValuesContainer::CheckLuaScriptValueReferences()
 	if(removedValues)
 	{
 		this->SetNetDirty();
-		this->OnNumberOfValuesChanged.Broadcast();
 	}
 }
 
@@ -574,7 +606,7 @@ void FLuaScriptValuesContainer::ClearScriptValues(bool bBroadcast)
 {	
 	//@TODO : broadcast?
 	this->LuaScriptValues.Empty();
-	this->OnNumberOfValuesChanged.Broadcast();
+	//this->BroadcastOnNumberOfValuesChanged();
 }
 
 FLuaScriptValue* FLuaScriptValuesContainer::GetLuaScriptValue(const sol::object& key) const

@@ -26,6 +26,7 @@
 #include "UObject/Object.h"
 #include "LuaTypes/LuaLightUserdata.h"
 #include "LuaTypes/LuaMulticastDelegate.h"
+#include "Replication/LuaNetHandle.h"
 #include "LuaValue.generated.h"
 
 struct FSetLuaScriptUObjectMemberPropertyWrapperParams;
@@ -129,6 +130,7 @@ typedef TLuaVariant<
 	FLuaCoroutineHandle,
 	FLuaScriptDelegate,
 	FLuaScriptMulticastDelegate,
+	FWeakRegisteredLuaNetObjectInfo,
 	UnrealLua::DeadValue
 > LuaValueData;
 

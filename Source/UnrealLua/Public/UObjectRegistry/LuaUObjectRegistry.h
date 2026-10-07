@@ -58,4 +58,6 @@ namespace UnrealLua::UObjectRegistry
 	void UNREALLUA_API RequestMakeUClassOverridable(UClass* uclass);
 	
 	UNREALLUA_API FLuaClassOverrideRegistry& GetLuaClassOverrideRegistry();
+	
+	void NotifyLuaScriptApplied(TObjectPtr<UObject> Object);
 }

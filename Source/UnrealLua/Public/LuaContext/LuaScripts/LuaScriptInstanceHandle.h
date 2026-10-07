@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "sol/forward.hpp"
+#include "UObject/StructOpsTypeTraits.h"
 #include "LuaScriptInstanceHandle.generated.h"
 
 enum class ELuaScriptReloadStage;
@@ -51,13 +52,15 @@ struct UNREALLUA_API FLuaScriptInstanceHandle
 	void InitializeLuaReplication() const;
 	const FDelegateHandle& GetLuaScriptReloadDelegateHandle() const;
 	void SetLuaScriptReloadDelegateHandle(const FDelegateHandle newHandle);
-
+	double GetNextSubobjectReplicationTime() const { return this->NextSubobjectReplicationTime; }
+	void SetNextSubobjectReplicationTime(double newTime) { this->NextSubobjectReplicationTime = newTime; }
 private:
 	void InitRepLayout(FLuaUObjectItem& Item, const FLuaRepLayout& Replayout) const;
 
 	TWeakObjectPtr<ULoadedLuaScriptCollection> LuaScriptCollection = nullptr;
 	TWeakObjectPtr<UObject> Owner = nullptr;
 	FDelegateHandle LuaScriptReloadHandle = {};
+	double NextSubobjectReplicationTime = 0.0f;
 
 	static FLuaScriptInstanceHandle& Invalid();
 };

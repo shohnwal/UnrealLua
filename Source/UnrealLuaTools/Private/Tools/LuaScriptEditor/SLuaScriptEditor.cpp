@@ -277,20 +277,20 @@ void SLuaScriptEditor::Construct(const FArguments& InArgs)
 		.VAlign(VAlign_Center)
 		.AutoWidth()
 		.Padding(0,0,2,0)
-		+ SHorizontalBox::Slot()
-		[
-			SNew(SButton)
-			.ToolTipText(FText::AsCultureInvariant("Open File"))
-			[
-				SNew(STextBlock)
-				.Text(FText::AsCultureInvariant("Open"))
-			]
-			.OnClicked(this, &SLuaScriptEditor::NotifyOpenFileButtonPressed)
-		]
-		.HAlign(HAlign_Left)
-		.VAlign(VAlign_Center)
-		.AutoWidth()
-		.Padding(0,0,2,0)
+		//+ SHorizontalBox::Slot()
+		//[
+		//	SNew(SButton)
+		//	.ToolTipText(FText::AsCultureInvariant("Open File"))
+		//	[
+		//		SNew(STextBlock)
+		//		.Text(FText::AsCultureInvariant("Open"))
+		//	]
+		//	.OnClicked(this, &SLuaScriptEditor::NotifyOpenFileButtonPressed)
+		//]
+		//.HAlign(HAlign_Left)
+		//.VAlign(VAlign_Center)
+		//.AutoWidth()
+		//.Padding(0,0,2,0)
 		+ SHorizontalBox::Slot()
 		[
 			SNew(SButton)

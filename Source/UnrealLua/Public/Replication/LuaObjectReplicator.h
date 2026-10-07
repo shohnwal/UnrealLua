@@ -13,7 +13,7 @@ class UNREALLUA_API ULuaObjectReplicator : public UObject
 public:
 	virtual void PostInitProperties() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	void SetScriptOwner(const FRegisteredLuaNetObjectInfo& info);
+	void SetScriptOwner(const FWeakRegisteredLuaNetObjectInfo& info);
 	void SetReplicationCondition(ELifetimeCondition repCondition);
 	ELifetimeCondition GetReplicationCondition() const;
 	void PreReplication();
@@ -28,13 +28,13 @@ public:
 	ENetRole GetOwnerNetRole() const;
 
 	UPROPERTY(ReplicatedUsing=OnRep_ScriptOwner, VisibleAnywhere, meta=(ShowOnlyInnerProperties))
-	FRegisteredLuaNetObjectInfo ScriptOwnerInfo;
+	FWeakRegisteredLuaNetObjectInfo ScriptOwnerInfo;
 
 	UFUNCTION()
 	void OnRep_ScriptOwner();
 	
 	UPROPERTY(Replicated, VisibleAnywhere, meta=(ShowOnlyInnerProperties))
-	FLuaObjectValueReplicator Replicator;
+	FLuaValueReplicator Replicator;
 
 	virtual bool IsSupportedForNetworking() const override
 	{

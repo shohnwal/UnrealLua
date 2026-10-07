@@ -48,6 +48,16 @@ FLuaScriptTemplate::FLuaScriptTemplate(sol::table& mainScriptTable)
 			this->RepLayoutTable = repLayoutTbl;
 		}
 
+		mainScriptTable.for_each([&values = this->LuaScriptValuesTemplate](const sol::object& key, const sol::object& value)
+		{
+			if(key.get_type() == sol::type::string)
+			{
+				//If the string has the same name as a UProperty of the Object,
+				//this should automatically create property wrappers as LuaScriptValue type
+				sol::string_view strv = key.as<sol::string_view>();
+				values.SetScriptValue(strv, value, false);
+			}
+		});
 		this->LuaTable = mainScriptTable;
 
 		this->LockTemplate();
@@ -126,6 +136,11 @@ sol::table FLuaScriptTemplate::GetRepLayoutTable()
 sol::table FLuaScriptTemplate::GetScriptTable()
 {
 	return this->LuaTable;
+}
+
+const TArray<FLuaScriptValue>& FLuaScriptTemplate::GetLuaScriptValuesTemplate() const
+{
+	return this->LuaScriptValuesTemplate.GetLuaScriptValues();
 }
 
 sol::object FLuaScriptTemplate::GetScriptValueInternal(const sol::object& key)

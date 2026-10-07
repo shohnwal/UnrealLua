@@ -88,6 +88,7 @@ struct UNREALLUA_API FLuaRepLayout
 	FUnrealLuaObjectRepLayout* GetObjectReplayout(FName subObjName);
 	void BuildSubObjectMappings();
 
+	static uint8 ReplayoutOwnerIndex;
 private:
 	FUnrealLuaObjectRepLayout* GetOrCreateObjectReplayout(FName subObj);
 };

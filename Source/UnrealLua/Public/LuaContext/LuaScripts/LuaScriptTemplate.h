@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "LuaValue/LuaScriptValuesContainer.h"
 #include "sol/sol.hpp"
 #include "UObject/CoreNetTypes.h"
 #include "LuaScriptTemplate.generated.h"
@@ -52,6 +53,7 @@ struct UNREALLUA_API FLuaScriptTemplate
 	sol::table GetSubobjectOverrides() const;
 	sol::table GetRepLayoutTable();
 	sol::table GetScriptTable();
+	const TArray<FLuaScriptValue>& GetLuaScriptValuesTemplate() const;
 	//FLuaScriptInstanceHandle CreateInstance() const;
 private:
 	sol::object GetScriptValueInternal(const sol::object& key);
@@ -64,6 +66,8 @@ private:
 	sol::table SubobjectOverrides = {};
 	sol::table RepLayoutTable = {};
 	
+	UPROPERTY(VisibleAnywhere)
+	FLuaScriptValuesContainer LuaScriptValuesTemplate = {};
 	UPROPERTY(VisibleAnywhere)
 	FLuaScriptAttributes ScriptAttributes;
 	UPROPERTY(VisibleAnywhere)

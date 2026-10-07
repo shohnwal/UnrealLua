@@ -477,11 +477,16 @@ void UUnrealLuaUObjectRegistry::NotifyUObjectDeleted(const UObjectBase* object, 
 	this->UnregisterUObject(obj);
 }
 
-void UUnrealLuaUObjectRegistry::NotifyActorDestroyed(AActor* actor)
+void UUnrealLuaUObjectRegistry::NotifyActorDestroyed(AActor* actor) const
 {
 	//At this point, EndPlay has been called on the Actor and all its components
 	
 	this->OnActorDestroyed.Broadcast(actor);
+}
+
+void UUnrealLuaUObjectRegistry::NotifyLuaScriptApplied(TObjectPtr<UObject> obj) const
+{
+	this->OnLuaScriptApplied.Broadcast(obj);
 }
 
 void UUnrealLuaUObjectRegistry::NotifyPawnRestart(APawn* pawn)
@@ -781,6 +786,11 @@ namespace UnrealLua::UObjectRegistry
 	FLuaClassOverrideRegistry& GetLuaClassOverrideRegistry()
 	{
 		return GLuaUObjectRegistry->GetOverrideRegistry();
+	}
+
+	void NotifyLuaScriptApplied(TObjectPtr<UObject> Object)
+	{
+		GLuaUObjectRegistry->NotifyLuaScriptApplied(Object);
 	}
 }
 

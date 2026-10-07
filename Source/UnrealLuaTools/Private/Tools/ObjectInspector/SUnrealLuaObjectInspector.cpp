@@ -361,6 +361,8 @@ void SUnrealLuaObjectInspector::Construct(const FArguments& InArgs)
 	.VAlign(VAlign_Fill)
 	.HAlign(HAlign_Fill);
 	
+	UUnrealLuaUObjectRegistry::Get()->OnLuaScriptApplied.AddSP(this, &SUnrealLuaObjectInspector::NotifyObjectLuaScriptApplied);
+	
 	this->SelectMainObject(nullptr);
 	
 	UnrealLua::UObjectRegistry::GetLuaClassOverrideRegistry().OnClassOverrideFinished.AddSP(this, &SUnrealLuaObjectInspector::NotifyUClassOverrideFinished);
@@ -704,19 +706,6 @@ void SUnrealLuaObjectInspector::SelectMainObject(UObject* mainObject)
 
 void SUnrealLuaObjectInspector::SetWatchedUObject(UObject* newWatchedUObject)
 {
-	if (this->WatchedObject.IsValid())
-	{
-		UObject* obj = this->WatchedObject.Get();
-		if (newWatchedUObject == obj)
-		{
-			return;
-		}
-		FLuaUObjectItem* item = UnrealLua::UObjectRegistry::TryGetUObjectItem(obj);
-		if (item)
-		{
-			item->OnNumberOfValuesChanged.RemoveAll(this);			
-		}
-	}
 	this->ClearWatchedData();
 	if (::IsValid(newWatchedUObject))
 	{
@@ -737,10 +726,6 @@ void SUnrealLuaObjectInspector::SetWatchedUObject(UObject* newWatchedUObject)
 		}
 		this->WatchedObjectLabel->SetText(FText::AsCultureInvariant(*GetNameSafe(newWatchedUObject)));
 		this->UpdateOuterObjectSection(newWatchedUObject->GetOuter());
-		UObject* obj = this->WatchedObject.Get();
-		FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(obj);
-		item.OnNumberOfValuesChanged.AddSP(this, &SUnrealLuaObjectInspector::RefreshLuaScriptValueList);
-		item.OnLuaScriptApplied.AddSP(this, &SUnrealLuaObjectInspector::NotifyObjectLuaScriptApplied);
 	}
 	else
 	{
@@ -799,6 +784,19 @@ void SUnrealLuaObjectInspector::Tick(const FGeometry& AllottedGeometry, const do
 		{
 			this->bHadValidObjectLastTick = false;
 			this->SetWatchedUObject(nullptr);
+		}
+		else if (this->bRebuildLuaScriptValueListRequested)
+		{
+			this->bRebuildLuaScriptValueListRequested = false;
+			this->RebuildLuaScriptValueList();
+		}
+		else
+		{
+			const FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(this->WatchedObject.Get());
+			if (item.GetNumLuaScriptValues() != this->LuaValuesListScrollBox->NumSlots())
+			{
+				this->RebuildLuaScriptValueList();
+			}
 		}
 	}
 }
@@ -914,6 +912,7 @@ void SUnrealLuaObjectInspector::RebuildLuaScriptValueList(const TArray<FString>&
 					.LuaScriptValue(&value)
 					.OnRequestEditValue(this, &SUnrealLuaObjectInspector::NotifyRequestEditLuaScriptValue)
 					.OnSelectUObject(this, &SUnrealLuaObjectInspector::NotifySelectUObjectFromLuaScriptValueKey)
+					.OnLuaValueDead(this, &SUnrealLuaObjectInspector::NotifyLuaScriptValueDead)
 					.InitiallyOpen(startOpen)
 				]
 				.AutoSize()
@@ -974,8 +973,19 @@ TSharedPtr<SWindow> SUnrealLuaObjectInspector::GetParentWindowIfInWindow()
 	return nullptr;
 }
 
+void SUnrealLuaObjectInspector::NotifyLuaScriptValueDead(TSharedRef<SWidget> scriptValueWidget)
+{
+	this->LuaValuesListScrollBox->RemoveSlot(scriptValueWidget);
+	this->bRebuildLuaScriptValueListRequested = true;
+}
+
 void SUnrealLuaObjectInspector::NotifyObjectLuaScriptApplied(UObject* object)
 {
+	
+	if (object != this->WatchedObject.Get())
+	{
+		return;	
+	}
 	
 	this->LoadedFilesVBox->ClearChildren();
 	

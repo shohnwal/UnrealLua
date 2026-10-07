@@ -294,6 +294,10 @@ public:
 	bool UnbindMulticastDelegateListener(FLuaDelegateHandle handle);
 	bool BroadcastLuaDelegate(const TArray<FLuaValue>& args);
 	bool IsDead() const;
+	const FLuaScriptValueKey& GetKey() const
+	{
+		return this->Key;
+	};
 
 private:
 	void SetNetDirty();

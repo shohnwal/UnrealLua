@@ -99,57 +99,10 @@ public:
 
 	ULuaScriptReplicationComponent* GetReplicationComponent();
 	
-	FLuaUObjectItemHandle* CurrentHandle = nullptr;
-	
-	FLuaFunctionWrapper TickFunc = {};
-	
-	TArray<TUniquePtr<FLuaUObjectItemHandle>> Handles = {};
-	
-	//Holds Lua script. Only valid on ILuaScriptable objects that actually have a Lua script loaded
-	UPROPERTY(VisibleAnywhere)
-	FLuaScriptInstanceHandle ScriptHandle = {};
-	
 	
 	sol::object GetUEnumWrapper(sol::this_state lua);
 	sol::object GetUEnumValueWrapper(int64 value, sol::this_state lua);
 	int PushUEnumValueWrapper(int64 value, sol::this_state lua);
-
-	//Pointer to property mapping From UClass FLuaUObjectItem func mapping
-	UPROPERTY(VisibleAnywhere)
-	FSharedStruct PropertyMapping = {};
-	
-	UPROPERTY(VisibleAnywhere)
-	TObjectPtr<UObject> Object = {};
-	
-	UPROPERTY(VisibleAnywhere)
-	TArray<TObjectPtr<ULuaScriptDynamicDelegateHandler>> DelegateHandlers = {};
-	
-	UPROPERTY(VisibleAnywhere)
-	TInstancedStruct<FLuaUObjectInputOverrides> InputOverrides = {};
-	
-	FCriticalSection Lock = {};
-	
-	UPROPERTY(VisibleAnywhere)
-	FName ObjectName = NAME_None;
-	//int32 UObjectSerialNumber = 0;
-	UPROPERTY(VisibleAnywhere)
-	int32 LuaRefCount = 0;
-
-	UPROPERTY(VisibleAnywhere)
-	FLuaNetHandle NetHandle = {};
-	
-	UPROPERTY(VisibleAnywhere)
-	bool bLuaTickEnabled = false;
-	UPROPERTY(VisibleAnywhere)
-	bool bBlueprintTickEnabled = true;
-	UPROPERTY(VisibleAnywhere)
-	bool bIsMetaItem = false;
-	UPROPERTY(VisibleAnywhere)
-	bool bIsRegisteredInOuterForReplication = false;
-	UPROPERTY(VisibleAnywhere)
-	bool HasAnyLuaScriptOverridesFromOuterUObject = false;
-
-	FObjectMulticastDelegate OnLuaScriptApplied = {};
 
 	bool operator==(const FLuaUObjectItem& other) const
 	{
@@ -167,7 +120,55 @@ public:
 	}
 
 	virtual void* GetOwningContainer() override;
+	
+	FLuaUObjectItemHandle* CurrentHandle = nullptr;
+	
+	FLuaFunctionWrapper TickFunc = {};
+	
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UObject> Object = {};
+	
+	//Pointer to property mapping From UClass FLuaUObjectItem func mapping
+	UPROPERTY(VisibleAnywhere)
+	FSharedStruct PropertyMapping = {};
+	
+	//Holds Lua script. Only valid on ILuaScriptable objects that actually have a Lua script loaded
+	UPROPERTY(VisibleAnywhere)
+	FLuaScriptInstanceHandle ScriptHandle = {};
+	
+	UPROPERTY(VisibleAnywhere)
+	TArray<TObjectPtr<ULuaScriptDynamicDelegateHandler>> DelegateHandlers = {};
+	
+	UPROPERTY(VisibleAnywhere)
+	TInstancedStruct<FLuaUObjectInputOverrides> InputOverrides = {};
+		
+	UPROPERTY(VisibleAnywhere)
+	FName ObjectName = NAME_None;
+
+	UPROPERTY(VisibleAnywhere)
+	int32 LuaRefCount = 0;
+
+	TArray<TUniquePtr<FLuaUObjectItemHandle>> Handles = {};
+	
+	UPROPERTY(VisibleAnywhere)
+	FLuaNetHandle NetHandle = {};
+	
+	UPROPERTY(VisibleAnywhere)
+	bool bLuaTickEnabled = false;
+	
+	UPROPERTY(VisibleAnywhere)
+	bool bBlueprintTickEnabled = true;
+	
+	UPROPERTY(VisibleAnywhere)
+	bool bIsMetaItem = false;
+	
+	UPROPERTY(VisibleAnywhere)
+	bool bIsRegisteredInOuterForReplication = false;
+	
+	UPROPERTY(VisibleAnywhere)
+	bool HasAnyLuaScriptOverridesFromOuterUObject = false;
 };
+	
 
 
 template<>

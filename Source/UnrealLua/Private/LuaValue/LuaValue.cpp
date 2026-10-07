@@ -2180,6 +2180,21 @@ bool FLuaValue::NetSerialize(FArchive& ar, UPackageMap* map, bool& bOutSuccess)
 			}
 			break;
 		}
+	case LuaValueData::IndexOfType<FRegisteredLuaNetObjectInfo>():
+		{
+			if(ar.IsLoading())
+			{
+				FRegisteredLuaNetObjectInfo value;
+				value.NetSerialize(ar, map, bOutSuccess);
+				this->GetData().Emplace<FRegisteredLuaNetObjectInfo>(value);
+			}
+			else
+			{
+				FRegisteredLuaNetObjectInfo& value = this->GetMutable<FRegisteredLuaNetObjectInfo>();
+				return value.NetSerialize(ar, map, bOutSuccess);
+			}
+			break;
+		}
 	case LuaValueData::IndexOfType<bool>():
 		{
 			if(ar.IsLoading())

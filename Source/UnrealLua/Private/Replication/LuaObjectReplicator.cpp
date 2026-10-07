@@ -24,7 +24,7 @@ void ULuaObjectReplicator::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME_WITH_PARAMS_FAST(ULuaObjectReplicator, Replicator, params);
 }
 
-void ULuaObjectReplicator::SetScriptOwner(const FRegisteredLuaNetObjectInfo& info)
+void ULuaObjectReplicator::SetScriptOwner(const FWeakRegisteredLuaNetObjectInfo& info)
 {
 	this->Replicator.OuterReplicator = this;
 	this->ScriptOwnerInfo = info;
@@ -74,7 +74,7 @@ UObject* ULuaObjectReplicator::GetReplicatorScriptOwner()
 		FLuaNetHandle netHandle = this->ScriptOwnerInfo.LuaNetHandle; 
 		if(netHandle.IsValid())
 		{
-			const FRegisteredLuaNetObjectInfo* registeredInfo = this->GetReplicationComponent()->FindReplicatedObjectInfo(netHandle);
+			const FWeakRegisteredLuaNetObjectInfo* registeredInfo = this->GetReplicationComponent()->FindReplicatedObjectInfo(netHandle);
 			if(registeredInfo)
 			{
 				obj = registeredInfo->RegisteredObject.Get();
@@ -101,7 +101,7 @@ void ULuaObjectReplicator::OnRep_ScriptOwner()
 	{
 		ULuaScriptReplicationComponent* cmp = this->GetReplicationComponent();
 		verify(IsValid(cmp));
-		const FRegisteredLuaNetObjectInfo* registeredInfo = this->GetReplicationComponent()->FindReplicatedObjectInfo(this->ScriptOwnerInfo.LuaNetHandle);
+		const FWeakRegisteredLuaNetObjectInfo* registeredInfo = this->GetReplicationComponent()->FindReplicatedObjectInfo(this->ScriptOwnerInfo.LuaNetHandle);
 		if(registeredInfo)
 		{
 			UObject* obj = registeredInfo->RegisteredObject.Get();

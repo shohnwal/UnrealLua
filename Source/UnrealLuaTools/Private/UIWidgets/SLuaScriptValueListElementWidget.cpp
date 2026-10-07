@@ -17,6 +17,7 @@ void SLuaScriptValueListElementWidget::Construct(const FArguments& InArgs)
 {
 	this->OnRequestEditValue = InArgs._OnRequestEditValue;
 	this->OnSelectUObject = InArgs._OnSelectUObject;
+	this->OnLuaValueDead = InArgs._OnLuaValueDead;
 	FLuaScriptValue* val = InArgs._LuaScriptValue;
 	verify(val != nullptr)
 	bool bInitiallyOpen = InArgs._InitiallyOpen;	
@@ -139,11 +140,7 @@ void SLuaScriptValueListElementWidget::UpdateValueWidgets(const FLuaValue& luaVa
 	if (luaValue.IsDead())
 	{
 		this->SelectUObjectButton->SetVisibility(EVisibility::Collapsed);
-		TSharedPtr<SWidget> parent = this->GetParentWidget();
-		if (parent)
-		{
-			StaticCastSharedPtr<SScrollBox>(parent)->RemoveSlot(this->AsShared());
-		}
+		this->OnLuaValueDead.ExecuteIfBound(this->AsShared());
 	}
 	else
 	{

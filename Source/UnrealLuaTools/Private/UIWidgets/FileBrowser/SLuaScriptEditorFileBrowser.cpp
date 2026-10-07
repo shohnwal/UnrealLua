@@ -125,23 +125,24 @@ void SLuaScriptEditorFileBrowser::Construct(const FArguments& InArgs)
 			.Visibility(EVisibility::SelfHitTestInvisible)
 			.OnExpansionChanged(this, &SLuaScriptEditorFileBrowser::NotifyItemExpansionChanged)
 		]
-		+SOverlay::Slot()
-		[
-			SNew(SUnrealLuaDraggableBoxOverlay)
-			.IsDraggable(true)
-			.Visibility(EVisibility::SelfHitTestInvisible)
-			.Content()
-			[
-				SNew(SBox)
-				.Content()
-				[
-					SNew(SColorBlock)
-					.Color(FLinearColor{0.8,0.2,0.8,1})
-				]
-				.HeightOverride(20)
-				.WidthOverride(20)
-			]
-		]
+		//For-fun pink box in file browser 
+		//+SOverlay::Slot()
+		//[
+		//	SNew(SUnrealLuaDraggableBoxOverlay)
+		//	.IsDraggable(true)
+		//	.Visibility(EVisibility::SelfHitTestInvisible)
+		//	.Content()
+		//	[
+		//		SNew(SBox)
+		//		.Content()
+		//		[
+		//			SNew(SColorBlock)
+		//			.Color(FLinearColor{0.8,0.2,0.8,1})
+		//		]
+		//		.HeightOverride(20)
+		//		.WidthOverride(20)
+		//	]
+		//]
 	];
 	this->FileTreeView->SetIsRightClickScrollingEnabled(false);
 }

@@ -24,6 +24,7 @@ public:
 	bool IsNetDirty() const;
 	
 	TArray<FLuaScriptValue>& GetLuaScriptValues();
+	const TArray<FLuaScriptValue>& GetLuaScriptValues() const;
 	
 	virtual const FHashedFieldMapping* GetPropertyMapping(const sol::string_view& strv) { return nullptr; }
 	virtual const FHashedFieldMapping* GetPropertyMapping(const uint32 hash) { return nullptr; }
@@ -80,6 +81,7 @@ public:
 	void ResetNonPropertyWrapperValuesButKeepListeners();
 	void EmptyAllLuaScriptValues();
 	bool HasAnyLuaScriptValues() const;
+	int32 GetNumLuaScriptValues() const;
 	void CleanUpLuaScriptValuesForLuaState(lua_State* L);
 	
 	//Sets a script value from a source Property + memory address
@@ -99,6 +101,8 @@ public:
 	template<typename T>
 	void SetScriptValue(const TCHAR* key, const sol::basic_object<T>& value, bool bCallNotify = true);
 	void SetScriptValue(const std::string_view& key, const sol::nil_t, bool bCallNotify = true);
+	void SetScriptValue(const FLuaScriptValueKey& key, const FLuaValue& value, bool bCallNotify = true);
+	void SetScriptValue(const FLuaScriptValue& val, bool bCallNotify = true);
 private:	
 	template<typename T>
 	requires (std::is_same_v<std::remove_cvref_t<sol::object>,T> || std::is_same_v<std::remove_cvref_t<sol::stack_object>,T>)
@@ -121,8 +125,7 @@ private:
 public:
 	UPROPERTY(VisibleAnywhere)
 	bool bIsScriptNetDirty = false;
-
-	FSimpleMulticastDelegate OnNumberOfValuesChanged = {};
+	
 protected:
 	virtual void UpdateTickFuncMapping(FLuaScriptValue* keyname) {};
 public:
@@ -152,6 +155,7 @@ inline void FLuaScriptValuesContainer::SetScriptValue(const std::string_view& ke
 	sol::object nil = sol::nil;
 	this->SetScriptValueInternal(key, nil, bCallNotify);
 }
+
 
 inline void FLuaScriptValuesContainer::SetScriptValue(const sol::string_view& key, const FProperty* sourceProperty, const void* sourceMemoryAddress, bool bCallNotify)
 {

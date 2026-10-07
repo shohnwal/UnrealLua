@@ -4,7 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-//#include "Replication/LuaValueReplicator.h"
+#include "Replication/LuaValueReplicator.h"
+#include "LuaValueReplicator.h"
 #include "Replication/LuaNetHandle.h"
 #include "LuaScriptReplicationComponent.generated.h"
 
@@ -55,13 +56,13 @@ public:
 	void RegisterLuaScriptableObjectForReplication(const FLuaUObjectItem& item);
 	void UnregisterFromLuaReplication(const FLuaUObjectItem& item);
 	
-	const FRegisteredLuaNetObjectInfo* FindReplicatedObjectInfo(UObject* obj) const;
-	const FRegisteredLuaNetObjectInfo* FindReplicatedObjectInfo(const FLuaNetHandle handle) const;
-	void RemoveLuaReplicator(ULuaObjectReplicator* luaObjectReplicator);
+	const FWeakRegisteredLuaNetObjectInfo* FindReplicatedObjectInfo(UObject* obj) const;
+	const FWeakRegisteredLuaNetObjectInfo* FindReplicatedObjectInfo(const FLuaNetHandle handle) const;
+	//void RemoveLuaReplicator(ULuaObjectReplicator* luaObjectReplicator);
+
 private:
 	UPROPERTY(VisibleAnywhere)
-	TArray<FRegisteredLuaNetObjectInfo> RegisteredReplicatedObjects = {};
-
+	TArray<FWeakRegisteredLuaNetObjectInfo> RegisteredReplicatedObjects = {};
 	/*
 	UPROPERTY(Replicated, VisibleAnywhere)
 	FLuaValueReplicator LuaScriptReplicator;
@@ -69,13 +70,25 @@ private:
 	FLuaValueReplicator* GetLuaValueReplicator();
 	*/
 
-	ULuaObjectReplicator* GetOrCreateReplicatorForObject(const FRegisteredLuaNetObjectInfo& info, ELifetimeCondition repCondition);
-	ULuaObjectReplicator* GetReplicatorForObject(UObject* obj, ELifetimeCondition repCondition);
-	TArray<ULuaObjectReplicator*> GetAllReplicatorsForObject(UObject* obj);
-	void RemoveAllReplicatorsForObject(UObject* obj);
+	//ULuaObjectReplicator* GetOrCreateReplicatorForObject(const FWeakRegisteredLuaNetObjectInfo& info, ELifetimeCondition repCondition);
+	//ULuaObjectReplicator* GetReplicatorForObject(UObject* obj, ELifetimeCondition repCondition);
+	//TArray<ULuaObjectReplicator*> GetAllReplicatorsForObject(UObject* obj);
+	//void RemoveAllReplicatorsForObject(UObject* obj);
 
-	UPROPERTY(Replicated,VisibleAnywhere)
-	TArray<TObjectPtr<ULuaObjectReplicator>> LuaObjectReplicators;
+	const FLuaValueReplicator& GetLuaValueReplicator() const;
+	FLuaValueReplicator& GetLuaValueReplicator();
+	
+	UPROPERTY(Replicated, VisibleAnywhere)
+	FLuaValueReplicator LuaValueReplicator = {};
+	
+	UPROPERTY(Replicated, VisibleAnywhere)
+	FLuaValueReplicator LuaValueReplicatorOwnerOnly = {};
+	
+	UPROPERTY(Replicated, VisibleAnywhere)
+	FLuaValueReplicator LuaValueReplicatorSkipOwner = {};
+	
+	//UPROPERTY(Replicated,VisibleAnywhere)
+	//TArray<TObjectPtr<ULuaObjectReplicator>> LuaObjectReplicators;
 public:
 	void LuaRPC(UObject* target, const FString& funcName, const TArray<FLuaValue>& args);
 

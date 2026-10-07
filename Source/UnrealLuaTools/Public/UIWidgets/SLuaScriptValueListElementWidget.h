@@ -23,6 +23,7 @@ public:
 		}
 	SLATE_ARGUMENT(FLuaScriptValue*, LuaScriptValue)
 	SLATE_ARGUMENT(bool, InitiallyOpen)
+	SLATE_EVENT(FSimpleWidgetDelegate, OnLuaValueDead)
 	SLATE_EVENT(FSimpleStringDelegate, OnRequestEditValue)
 	SLATE_EVENT(FSimpleStringDelegate, OnSelectUObject)
 	SLATE_END_ARGS()
@@ -46,4 +47,5 @@ public:
 
 	FSimpleStringDelegate OnSelectUObject;
 	FSimpleStringDelegate OnRequestEditValue;
+	FSimpleWidgetDelegate OnLuaValueDead = {};
 };

@@ -28,24 +28,11 @@ enum class ELuaScriptLoadingBehavior
 	*/
 	AUTO,
 	/*
-		Lua Script will be automatically loaded, but just as an empty table 
-	*/
-	EMPTY,
-	/*
 		Lua Script will be loaded manually by game code 
 	*/
 	MANUAL
 };
 
-/*
-UENUM()
-enum class ELuaScriptPathType
-{
-	ModdablePath,
-	NonModdablePath,
-	AbsolutePath
-};
-*/
 USTRUCT(BlueprintType)
 struct UNREALLUA_API FLuaScriptSettings
 {

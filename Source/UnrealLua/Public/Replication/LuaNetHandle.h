@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "CoreMinimal.h"
 #include "Misc/Crc.h"
+#include "UObject/ObjectPtr.h"
 #include "UObject/StructOpsTypeTraits.h"
 #include "LuaNetHandle.generated.h"
 
@@ -61,7 +62,7 @@ struct UNREALLUA_API FRegisteredLuaNetObjectInfo
 {
 	GENERATED_BODY()
 	UPROPERTY(VisibleAnywhere)
-	TWeakObjectPtr<UObject> RegisteredObject = nullptr;
+	TObjectPtr<UObject> RegisteredObject = nullptr;
 	UPROPERTY(VisibleAnywhere, meta=(ShowOnlyInnerProperties))
 	FLuaNetHandle LuaNetHandle = {};
 	bool operator==(const FRegisteredLuaNetObjectInfo& other) const
@@ -74,6 +75,32 @@ struct UNREALLUA_API FRegisteredLuaNetObjectInfo
 
 template<>
 struct TStructOpsTypeTraits<FRegisteredLuaNetObjectInfo> : public TStructOpsTypeTraitsBase2<FRegisteredLuaNetObjectInfo>
+{
+	enum
+	{
+		WithNetSerializer = true,
+	};
+};
+
+
+USTRUCT()
+struct UNREALLUA_API FWeakRegisteredLuaNetObjectInfo
+{
+	GENERATED_BODY()
+	UPROPERTY(VisibleAnywhere)
+	TWeakObjectPtr<UObject> RegisteredObject = nullptr;
+	UPROPERTY(VisibleAnywhere, meta=(ShowOnlyInnerProperties))
+	FLuaNetHandle LuaNetHandle = {};
+	bool operator==(const FWeakRegisteredLuaNetObjectInfo& other) const
+	{
+		return RegisteredObject == other.RegisteredObject;
+	}
+
+	bool NetSerialize(FArchive& ar, UPackageMap* map, bool& bOutSuccess);
+};
+
+template<>
+struct TStructOpsTypeTraits<FWeakRegisteredLuaNetObjectInfo> : public TStructOpsTypeTraitsBase2<FWeakRegisteredLuaNetObjectInfo>
 {
 	enum
 	{

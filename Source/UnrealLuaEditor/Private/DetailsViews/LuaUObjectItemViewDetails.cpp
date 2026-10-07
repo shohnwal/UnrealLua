@@ -42,7 +42,6 @@ void FLuaUObjectItemViewDetails::CustomizeHeader(TSharedRef<IPropertyHandle> Str
 		{
 			FLuaUObjectItem* item = view->LuaUObjectItem;
 			ChildStruct = MakeShared<FStructOnScope>(FLuaUObjectItem::StaticStruct(), reinterpret_cast<uint8*>(item));
-			item->OnNumberOfValuesChanged.AddSP(this, &FLuaUObjectItemViewDetails::NotifyScriptValuesRemoved);
 		}
 		else
 		{

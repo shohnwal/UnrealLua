@@ -12,6 +12,8 @@
 #include "LuaContext/LuaScripts/LuaScriptTemplate.h"
 #include "UObjectRegistry/LuaUObjectItem.h"
 
+uint8 FLuaRepLayout::ReplayoutOwnerIndex = UINT8_MAX;
+
 FUnrealLuaRepLayoutProperty* FLuaRepLayout::GetRepPropertyForRepIndex(uint8 index) const
 {
     return const_cast<FLuaRepLayout*>(this)->RepLayoutProperties.FindByPredicate([index](const FUnrealLuaRepLayoutProperty& item)
@@ -114,6 +116,13 @@ void ULoadedLuaScriptCollection::ApplyLuaScriptTemplateToUObject(FLuaUObjectItem
     verify(handle.GetLuaScriptReloadDelegateHandle().IsValid())
     
     //Copy over Lua script values and functions from the template
+    //for (const FLuaScriptValue& val : this->ScriptTemplate.GetLuaScriptValuesTemplate())
+    //{
+    //    //If the key string has the same name as a UProperty of the Object,
+    //    //this should automatically create property wrappers as LuaScriptValue type
+    //    scriptOwner.SetScriptValue(val, false);        
+    //}
+    //@TODO : Switch out for values template above
     this->ScriptTemplate.GetScriptTable().for_each([&scriptOwner](const sol::object& key, const sol::object& value)
     {
         if(key.get_type() == sol::type::string)
@@ -124,7 +133,7 @@ void ULoadedLuaScriptCollection::ApplyLuaScriptTemplateToUObject(FLuaUObjectItem
             scriptOwner.SetScriptValue(strv, value, false);
         }
     });
-    
+        
     bool enableTick = UUnrealLuaConfig::AllowOverrideTick() && scriptOwner.TickFunc.IsValid() && this->ScriptTemplate.StartWithTickEnabled(); 
     scriptOwner.SetLuaTickEnabled(enableTick);        
 }
@@ -285,6 +294,11 @@ FLuaRepLayout* ULoadedLuaScriptCollection::GetRepLayout()
     //First, examine the int-keyed proprties, 
     for(uint8 index = 1; index <= replicatedProps.size(); index++)
     {
+        if (index == FLuaRepLayout::ReplayoutOwnerIndex)
+        {
+            LUA_LOG_ERROR("Too many replicated values in Rep layout for script %s!", *this->FileInfo.OriginalFileRequestPath)
+            break;
+        }
         sol::object value_o = replicatedProps[index].get_or<sol::table>(sol::nil);
         if(value_o.get_type() != sol::type::table)
         {

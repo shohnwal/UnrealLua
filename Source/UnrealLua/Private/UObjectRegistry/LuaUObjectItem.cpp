@@ -153,8 +153,6 @@ void FLuaUObjectItem::Reset()
 	}
 	this->CurrentHandle = nullptr;
 	this->bLuaTickEnabled = false;
-	this->OnLuaScriptApplied.Clear();
-	this->OnNumberOfValuesChanged.Clear();
 	verify(this->VerifyIsClean());
 }
 
@@ -174,8 +172,6 @@ bool FLuaUObjectItem::VerifyIsClean()
 	//verify(this->LuaSelfCache.IsEmpty());
 	verify(this->DelegateHandlers.IsEmpty())
 	verify(this->CurrentHandle == nullptr);
-	verify(!this->OnNumberOfValuesChanged.IsBound())
-	verify(!this->OnLuaScriptApplied.IsBound())
 	//handles stay existing, so any UObject lightuserdata can still look it up to verify its invalid
 	for (auto& handle : this->Handles)
 	{
@@ -351,7 +347,7 @@ void FLuaUObjectItem::RemoveLuaScript(bool bIsReloading)
 	this->TickFunc = {};
 	if (this->Object)
 	{
-		this->OnLuaScriptApplied.Broadcast(this->Object);
+		UnrealLua::UObjectRegistry::NotifyLuaScriptApplied(this->Object);
 	}
 	//this->TickFuncMapping = nullptr;
 	//this->NameToLuaScriptFunctionMapping = nullptr;
@@ -467,7 +463,7 @@ void FLuaUObjectItem::SetLuaScriptHandle(FLuaScriptInstanceHandle& newHandle, bo
 	//will also setup OnRep-Listeners
 	this->ScriptHandle.InitializeLuaReplication();
 	
-	this->OnLuaScriptApplied.Broadcast(object);
+	UnrealLua::UObjectRegistry::NotifyLuaScriptApplied(this->Object);
 	
 	//Script BeginPlay on the clean script
 	UnrealLua::LuaScriptCall::CallLuaFunctionSafeByName(this, UnrealLua::scriptLoading::ScriptBeginPlay, object, bIsReload);

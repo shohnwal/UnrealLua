@@ -13,13 +13,14 @@
 #include "sol/sol.hpp"
 #include "Config/UnrealLuaConfig.h"
 #include "Async/ParallelFor.h"
+#include "Iris/ReplicationSystem/Conditionals/ReplicationCondition.h"
 #include "LuaContext/LuaScripts/LoadedLuaScriptCollection.h"
 #include "Net/Core/PushModel/PushModel.h"
 #include "UObjectRegistry/LuaUObjectRegistry.h"
 
 // Sets default values for this component's properties
 ULuaScriptReplicationComponent::ULuaScriptReplicationComponent()
-	: LuaObjectReplicators()
+	//: LuaObjectReplicators()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
@@ -66,7 +67,14 @@ void ULuaScriptReplicationComponent::GetLifetimeReplicatedProps(TArray<FLifetime
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	FDoRepLifetimeParams params;
 	params.bIsPushBased = true;
-	DOREPLIFETIME_WITH_PARAMS(ULuaScriptReplicationComponent, LuaObjectReplicators, params);
+	//DOREPLIFETIME_WITH_PARAMS(ULuaScriptReplicationComponent, LuaObjectReplicators, params);
+	DOREPLIFETIME_WITH_PARAMS(ULuaScriptReplicationComponent, LuaValueReplicator, params);
+	
+	params.Condition = COND_OwnerOnly;
+	DOREPLIFETIME_WITH_PARAMS(ULuaScriptReplicationComponent, LuaValueReplicatorOwnerOnly, params);
+	
+	params.Condition = COND_SkipOwner;
+	DOREPLIFETIME_WITH_PARAMS(ULuaScriptReplicationComponent, LuaValueReplicatorSkipOwner, params);
 }
 
 bool ULuaScriptReplicationComponent::ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags)
@@ -98,6 +106,8 @@ void ULuaScriptReplicationComponent::PreReplication(IRepChangedPropertyTracker &
 {
 	UActorComponent::PreReplication(ChangedPropertyTracker);
 
+	this->LuaValueReplicator.PreReplication();
+	/*
 	if(this->LuaObjectReplicators.Num() < 3)
 	{
 		for(auto& replicator : this->LuaObjectReplicators)
@@ -113,6 +123,7 @@ void ULuaScriptReplicationComponent::PreReplication(IRepChangedPropertyTracker &
 			replicator->PreReplication();
 		});	
 	}
+	*/
 
 	const UE::Net::FSubObjectRegistry& reg = UE::Net::FSubObjectRegistryGetter::GetSubObjects(this->GetOwner());
 
@@ -131,22 +142,28 @@ void ULuaScriptReplicationComponent::BeginPlay()
 	Super::BeginPlay();
 	if(!this->GetOwner()->HasAuthority())
 	{
+		this->LuaValueReplicator.InitialReplication();
+		/*
 		for(TObjectPtr<ULuaObjectReplicator>& replicator : this->LuaObjectReplicators)
 		{
 			replicator->InitialReplication();
 		}
+		*/
 	}
 }
 
 void ULuaScriptReplicationComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	//this->GetLuaValueReplicator()->ResetValues();
+	this->LuaValueReplicator.ResetValues();
+	/*
 	for(auto& replicator : this->LuaObjectReplicators)
 	{
 		replicator->ResetValues();
 		this->RemoveReplicatedSubObject(replicator);
 	}
 	this->LuaObjectReplicators.Empty();
+	*/
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -160,7 +177,7 @@ void ULuaScriptReplicationComponent::RegisterLuaScriptableObjectForReplication(c
 	{
 		LUA_LOG("Registering UObject %s with NetHandle %d", *GetNameSafe(obj), netHandle.HandleValue)
 	}
-	FRegisteredLuaNetObjectInfo info{obj, netHandle};
+	FWeakRegisteredLuaNetObjectInfo info{obj, netHandle};
 	this->RegisteredReplicatedObjects.Emplace(info);
 
 	if(ownerActor->GetNetMode() == ENetMode::NM_Client)
@@ -221,7 +238,18 @@ void ULuaScriptReplicationComponent::RegisterLuaScriptableObjectForReplication(c
 		
 		for(auto& repCondition : repLayout->PropertyReplicationConditionFlags)
 		{
-			ULuaObjectReplicator* replicator = this->GetOrCreateReplicatorForObject(info, repCondition);
+			if (repCondition == ELifetimeCondition::COND_None)
+			{
+				this->LuaValueReplicator.ServerAddReplicatedObject(info, *repLayout, repCondition);
+			}
+			else if (repCondition == ELifetimeCondition::COND_OwnerOnly)
+			{
+				this->LuaValueReplicatorOwnerOnly.ServerAddReplicatedObject(info, *repLayout, repCondition);
+			}
+			else if (repCondition == ELifetimeCondition::COND_SkipOwner)
+			{
+				this->LuaValueReplicatorSkipOwner.ServerAddReplicatedObject(info, *repLayout, repCondition);
+			}
 		}
 	}
 }
@@ -231,13 +259,20 @@ void ULuaScriptReplicationComponent::UnregisterFromLuaReplication(const FLuaUObj
 	UObject* obj = item.Object;
 	FLuaNetHandle netHandle = item.NetHandle;
 	
-	FRegisteredLuaNetObjectInfo toRemove{obj, netHandle};
+	FWeakRegisteredLuaNetObjectInfo toRemove{obj, netHandle};
 	this->RegisteredReplicatedObjects.RemoveSingleSwap(toRemove);
 	
+	if (this->GetOwner() && this->GetOwner()->GetNetMode() != ENetMode::NM_Client)
+	{
+		FRegisteredLuaNetObjectInfo toRemoveInfo{obj, netHandle};
+		this->LuaValueReplicator.ServerUnregisterObject(toRemoveInfo);
+	}
+	/*
 	if (this->GetWorld() && this->GetWorld()->GetNetMode() < ENetMode::NM_Client)
 	{
 		this->RemoveAllReplicatorsForObject(obj);
 	}
+	*/
 }
 /*
 FLuaValueReplicator* ULuaScriptReplicationComponent::GetLuaValueReplicator()
@@ -245,8 +280,8 @@ FLuaValueReplicator* ULuaScriptReplicationComponent::GetLuaValueReplicator()
 	return &this->LuaScriptReplicator;
 }
 */
-
-ULuaObjectReplicator* ULuaScriptReplicationComponent::GetOrCreateReplicatorForObject(const FRegisteredLuaNetObjectInfo& info, ELifetimeCondition repCondition)
+/*
+ULuaObjectReplicator* ULuaScriptReplicationComponent::GetOrCreateReplicatorForObject(const FWeakRegisteredLuaNetObjectInfo& info, ELifetimeCondition repCondition)
 {
 	verify(this->GetOwner()->HasAuthority());
 	UObject* obj = info.RegisteredObject.Get();
@@ -312,14 +347,24 @@ void ULuaScriptReplicationComponent::RemoveAllReplicatorsForObject(UObject* obj)
 		}
 	}
 }
+*/
+const FLuaValueReplicator& ULuaScriptReplicationComponent::GetLuaValueReplicator() const
+{
+	return this->LuaValueReplicator;
+}
 
+FLuaValueReplicator& ULuaScriptReplicationComponent::GetLuaValueReplicator()
+{
+	return this->LuaValueReplicator;
+}
+/*
 void ULuaScriptReplicationComponent::RemoveLuaReplicator(ULuaObjectReplicator* luaObjectReplicator)
 {
 	this->DestroyReplicatedSubObjectOnRemotePeers(luaObjectReplicator);
 	this->LuaObjectReplicators.RemoveSingleSwap(luaObjectReplicator);
 	luaObjectReplicator->ConditionalBeginDestroy();
 }
-
+*/
 void ULuaScriptReplicationComponent::LuaRPC(UObject* target, const FString& funcName, const TArray<FLuaValue>& args)
 {
 	if(funcName.IsEmpty())
@@ -512,17 +557,17 @@ void ULuaScriptReplicationComponent::SERVER_LuaRpcWithLuaNetHandle_Implementatio
 	this->PerformRpcCallOnTarget(targetID, funcName, args);
 }
 
-const FRegisteredLuaNetObjectInfo* ULuaScriptReplicationComponent::FindReplicatedObjectInfo(UObject* obj) const
+const FWeakRegisteredLuaNetObjectInfo* ULuaScriptReplicationComponent::FindReplicatedObjectInfo(UObject* obj) const
 {
-	return this->RegisteredReplicatedObjects.FindByPredicate([obj](const FRegisteredLuaNetObjectInfo& item)
+	return this->RegisteredReplicatedObjects.FindByPredicate([obj](const FWeakRegisteredLuaNetObjectInfo& item)
 	{
 		return item.RegisteredObject == obj;
 	});
 }
 
-const FRegisteredLuaNetObjectInfo* ULuaScriptReplicationComponent::FindReplicatedObjectInfo(const FLuaNetHandle handle) const
+const FWeakRegisteredLuaNetObjectInfo* ULuaScriptReplicationComponent::FindReplicatedObjectInfo(const FLuaNetHandle handle) const
 {
-	return this->RegisteredReplicatedObjects.FindByPredicate([handle](const FRegisteredLuaNetObjectInfo& item)
+	return this->RegisteredReplicatedObjects.FindByPredicate([handle](const FWeakRegisteredLuaNetObjectInfo& item)
 {
 	return item.LuaNetHandle == handle;
 });
@@ -573,7 +618,7 @@ void ULuaScriptReplicationComponent::SERVER_LuaRpcObjectName_Implementation(cons
 void ULuaScriptReplicationComponent::PerformRpcCallOnTarget(FLuaNetHandle targetID, const FString& funcName, const TArray<FLuaValue>& args)
 {
 	LUA_LOG_WARNING("Received Nethandle RPC command on handle %d in actor %s with LuaFunction %s", targetID.HandleValue, *GetNameSafe(this->GetOwner()), *funcName)
-	const FRegisteredLuaNetObjectInfo* found = this->FindReplicatedObjectInfo(targetID);
+	const FWeakRegisteredLuaNetObjectInfo* found = this->FindReplicatedObjectInfo(targetID);
 	if(!found)
 	{
 		LUA_LOG_ERROR("Coiuld not find any target object with netID %d", targetID.HandleValue)

@@ -33,6 +33,7 @@ struct FLuaScriptSettings;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FUObjectExistenceEventDelegate, UObject*);
 
+
 UCLASS(BlueprintType, Transient, Within=UnrealLuaEngineSubsystem)
 class UNREALLUA_API UUnrealLuaUObjectRegistry : public UObject, public FUObjectArray::FUObjectDeleteListener, public FUObjectArray::FUObjectCreateListener
 {
@@ -59,7 +60,9 @@ public:
 	
 	void RequestMakeUClassOverridable(UClass* uclass);
 	
-	void NotifyActorDestroyed(AActor* actor);
+	void NotifyActorDestroyed(AActor* actor) const;
+	
+	void NotifyLuaScriptApplied(TObjectPtr<UObject> obj) const;
 	
 	UFUNCTION()
 	void NotifyPawnRestart(APawn* pawn);
@@ -115,4 +118,6 @@ public:
 	
 	FUObjectExistenceEventDelegate OnNewObjectEventDelegate = {};
 	FUObjectExistenceEventDelegate OnRemovedObjectEventDelegate = {};
+	
+	FObjectMulticastDelegate OnLuaScriptApplied = {};
 };

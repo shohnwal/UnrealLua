@@ -94,6 +94,7 @@ private:
 	void UpdateOuterObjectSection(UObject* newOuter);
 	TSharedPtr<SLuaScriptValueEditor> FindLuaScriptValueEditor(const FString& key);
 	TSharedPtr<SWindow> GetParentWindowIfInWindow();
+	void NotifyLuaScriptValueDead(TSharedRef<SWidget> scriptValueWidget);
 	
 	void NotifyObjectLuaScriptApplied(UObject* Object);
 public:
@@ -122,4 +123,5 @@ public:
 	TSharedPtr<SButton> EditLoadedLuaScriptButton = {};
 	TSharedPtr<SVerticalBox> LoadedFilesVBox = {};
 	TSharedPtr<SUObjectHierarchyWidget> SubobjectsBrowser = {};
+	bool bRebuildLuaScriptValueListRequested = false;
 };

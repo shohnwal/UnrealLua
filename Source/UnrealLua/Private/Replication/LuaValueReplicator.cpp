@@ -13,30 +13,94 @@
 #include "LuaContext/LuaScripts/LoadedLuaScriptCollection.h"
 #include "Replication/LuaObjectReplicator.h"
 //#include "Runtime/Engine/Private/Net/NetSubObjectRegistryGetter.h"
+
+#include <ranges>
+
+#include "Replication/LuaScriptReplicationComponent.h"
 #include "UObjectRegistry/LuaUObjectRegistry.h"
 #include "Utility/UnrealLuaHash.h"
 
-FLuaObjectValueReplicator::FLuaObjectValueReplicator(): OuterReplicator(nullptr)
+FLuaValueReplicator::FLuaValueReplicator()
 {
 }
 
-UObject* FLuaObjectValueReplicator::GetReplicatorScriptOwner()
+void FLuaValueReplicator::ServerAddReplicatedObject(const FWeakRegisteredLuaNetObjectInfo& repObjectInfo, const FLuaRepLayout& repLayout, ELifetimeCondition repCondition)
 {
-	if (ULuaObjectReplicator* replicator = Cast<ULuaObjectReplicator>(this->OuterReplicator))
+	//On server, create new value owner ID
+	const int32 ownerID = this->GetNewOwnerID();
+	
+	//Add entry for rep layout owner first
+	FNetSerializedLuaValue& ownerEntry = this->Items.Emplace_GetRef(ownerID, FLuaRepLayout::ReplayoutOwnerIndex);
+	ownerEntry.LuaValue.Emplace<FRegisteredLuaNetObjectInfo>(repObjectInfo);
+
+	//All following entries are values belonging to that owner
+	//Emplace empty entries for each replicated value
+	for (const FUnrealLuaRepLayoutProperty& repProperty : repLayout.RepLayoutProperties)
 	{
-		return replicator->GetReplicatorScriptOwner();
+		verify(repProperty.RepLayoutPropertyIndex != FLuaRepLayout::ReplayoutOwnerIndex);
+		if (repProperty.Condition == repCondition)
+		{
+			this->Items.Emplace(ownerID, repProperty.RepLayoutPropertyIndex);
+		}
 	}
-	return this->OuterReplicator->GetReplicatorScriptOwner();
 }
 
-void FLuaObjectValueReplicator::PreReplication()
+void FLuaValueReplicator::ServerUnregisterObject(const FRegisteredLuaNetObjectInfo& repObjectInfo)
 {
-	UObject* scriptOwner = this->GetReplicatorScriptOwner();
-	if(!scriptOwner)
+	FNetSerializedLuaValue* found = this->Items.FindByPredicate([&repObjectInfo](const FNetSerializedLuaValue& item)
+	{
+		return item.IsReplicatedObjectEntry() && item.LuaValue.Get<FRegisteredLuaNetObjectInfo>() == repObjectInfo;
+	});
+	if (found)
+	{
+		int32 valueOwnerID = found->ValueOwnerID;
+		this->Items.RemoveAll([valueOwnerID](const FNetSerializedLuaValue& item)
+		{
+			return item.ValueOwnerID == valueOwnerID;
+		});
+		this->MarkArrayDirty();
+	}
+}
+
+FNetSerializedLuaValue* FLuaValueReplicator::FindValueOwnerForOwnerID(int32 ownerID)
+{
+	return this->ValueOwners.FindByPredicate([ownerID](FNetSerializedLuaValue& item)
+	{
+		return ownerID == item.ValueOwnerID;
+	});
+}
+
+
+void FLuaValueReplicator::InitialReplication()
+{
+	this->ChangedValues.Reserve(this->Items.Num());
+	for(FNetSerializedLuaValue& item : this->Items)
+	{
+		//Sort new items either in value owners array or into changed values
+		if (item.IsReplicatedObjectEntry())
+		{
+			this->ValueOwners.AddUnique(item);
+		}
+		else
+		{
+			this->ChangedValues.Emplace(item.ValueOwnerID, item.RepLayoutPropertyIndex, ELuaValueChangeOP::ADD);
+		}
+	}	
+	//for(FNetSerializedLuaValue& item : Items)
+	//{
+	//	this->ChangedValues.Emplace(item.ValueOwnerID, item.RepLayoutPropertyIndex, ELuaValueChangeOP::ADD);
+	//}
+	this->ClientProcessChangedValues();
+}
+
+void FLuaValueReplicator::PreReplication()
+{
+	UObject* replicatorComponent = this->OwningObject;
+	if(!replicatorComponent)
 	{
 		return;
 	}
-	UWorld* world = scriptOwner->GetWorld();
+	UWorld* world = replicatorComponent->GetWorld();
 	if(!world)
 	{
 		return;
@@ -53,198 +117,405 @@ void FLuaObjectValueReplicator::PreReplication()
 	this->ServerProcessValues(currentServerTime);
 }
 
-bool FLuaObjectValueReplicator::ServerProcessValues(const double currentServerTime)
+bool FLuaValueReplicator::ServerProcessValues(const double currentServerTime)
 {
-	UObject* scriptOwner = this->GetReplicatorScriptOwner();
+	ULuaScriptReplicationComponent* cmp = Cast<ULuaScriptReplicationComponent>(this->OwningObject);
 	
-	if(!scriptOwner)
+	if(!cmp->GetIsReplicated())
 	{
+		//Component not replicated -> don't bother
 		return false;
 	}
-	if(UActorComponent* cmp = Cast<UActorComponent>(scriptOwner))
+	
+	if (this->Items.IsEmpty())
 	{
-		if(!cmp->GetIsReplicated())
-		{
-			//Component not replicated -> don't bother
-			return false;
-		}
+		return true;
 	}
-	FLuaScriptInstanceHandle& scriptHandle = UnrealLua::UObjectRegistry::GetLuaScriptHandle(scriptOwner);
-	FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(scriptOwner);
-
-	FLuaRepLayout* repLayout = scriptHandle.GetRepLayout();
-	if(!repLayout)
-	{
-		return false;
-	}	
-
-	bool bCheckSubobjects = false;
-	if(currentServerTime >= this->NextSubobjectReplicationTime)
-	{
-		//Enough time has passed for Subobject replication
-		bCheckSubobjects = true;
-		this->NextSubobjectReplicationTime = currentServerTime + repLayout->ReplicationFrequency;
-	}
-	sol::state_view lua = scriptHandle.GetLuaStateView();
-
 	bool useMultithreadedReplication = UUnrealLuaConfig::IsMultithreadReplicationEnabled();
 	
-	UClass* scriptOwnerClass = scriptOwner->GetClass();
+	FNetSerializedLuaValue* serializedLuaScriptOwnerEntry = nullptr;
+	FLuaRepLayout* repLayout = nullptr;
+	FLuaUObjectItem* uobjectItemPtr = nullptr;
+	UObject* scriptOwner = nullptr;
+	UClass* scriptOwnerClass = nullptr;
+	bool bCheckSubobjects = false;
 
-	//Go over all replicated object names and try to find the UObjects to replicate
-	for(int32 objindex = 0; objindex < repLayout->ObjectReplayouts.Num(); objindex++)
+	//On the server, due to how FLuaValueReplicator::ServerAddReplicatedObject adds new objects,
+	//the items are always properly ordered:
+	//[owner A],[item A1],[item A2],[item A3],[owner B],[item B1],[item B2],[owner C],[item C1]...
+	//So we can just do a normal loop throughout the entire array
+	for (int32 index = 0; index < this->Items.Num(); ++index)
 	{
-		const FUnrealLuaObjectRepLayout& objectRepLayout = repLayout->ObjectReplayouts[objindex];
-
-		//SubObject == NAME_None is the ScriptOwner currently being examined 
-		if(objectRepLayout.SubObjectPropertyName == NAME_None)
+		FNetSerializedLuaValue& currentItem = this->Items[index];
+		
+		if (currentItem.IsReplicatedObjectEntry())
 		{
-			if(!item.IsNetDirty())
+			//new script owner entrx -> get new context items
+			serializedLuaScriptOwnerEntry = nullptr;
+			uobjectItemPtr = nullptr;
+			repLayout = nullptr;
+			scriptOwner = nullptr;
+			scriptOwnerClass = nullptr;
+			bCheckSubobjects = false;
+			
+			UObject* scriptOwnerTemp = currentItem.ResolveUObject(cmp);
+			if (!scriptOwnerTemp)
 			{
-				//@TODO : Critical!
-				//What if a FPropertyWrapperValue got changed in C++/Blueprint?
-				//in that case the item would not have been marked NetDirty
 				continue;
 			}
-			for(int32 propIndex = 0; propIndex < objectRepLayout.ReplicatedProperties.Num(); propIndex++)
+			FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(scriptOwnerTemp);
+			
+			if (!item.IsNetDirty())
 			{
-				const FUnrealLuaRepLayoutProperty& replicatedProp = *objectRepLayout.ReplicatedProperties[propIndex];
-				//No Subobject name given:
-				//Replicated Property can be either a UProperty of the Script owning UObject or it's a LuaScript value 
-
-				//Net wrappers for FProperties in the Rep Layout should already have been created during
-				//FLuaScriptInstance::InitRepLayout -> GetLuaScriptValueOrCreateEmpty
-				//so there is no need to look up the property directly, just access the Lua script
-				//value to get the wrapper
-
-				//FLuaScriptValue* val = item.GetLuaScriptValue(*replicatedProp.Property.ToString());
-				FLuaScriptValue* val = item.GetLuaScriptValue(*replicatedProp.StringKey);
-				if(val)
-				{
-					verify(val->IsNetProperty());
-					if(val->IsType<FPropertyReferenceWrapper>())
-					{
-						//need to process it without dirty, since this value might have changed
-						//via Blueprint/C++, in which case no dirty bit is set
-						this->ServerProcessValue(val->GetLuaValue(), &replicatedProp);
-						val->ClearNetDirty();
-						continue;
-					}
-					if(!val->IsNetDirty())
-					{
-						continue;
-					}
-					val->ClearNetDirty();
-					if(val->GetLuaValue().CanBeReplicated())
-					{
-						this->ServerProcessValue(val->GetLuaValue(), &replicatedProp);	
-					}
-					else
-					{
-						//can't be replicated -> nil
-						this->ServerProcessValue(nullptr, &replicatedProp);
-					}
-				}
-				else
-				{
-					//no valid value -> is nil
-					FLuaValue currentScriptValue{nullptr};
-					this->ServerProcessValue(currentScriptValue, &replicatedProp);
-				}
+				continue;
 			}
+			repLayout = item.ScriptHandle.GetRepLayout();
+			if(!repLayout)
+			{
+				continue;
+			}
+			
+			verify(repLayout->ReplicationFrequency >= 0.0f)
+			
+			if(currentServerTime >= item.ScriptHandle.GetNextSubobjectReplicationTime())
+			{
+				//Enough time has passed for Subobject replication
+				bCheckSubobjects = true;
+				item.GetLuaScriptHandle().SetNextSubobjectReplicationTime(currentServerTime + repLayout->ReplicationFrequency);
+			}
+			
+			item.ClearNetDirty();
+			scriptOwner = scriptOwnerTemp;
+			uobjectItemPtr = &item;
+			serializedLuaScriptOwnerEntry = &currentItem;
+			scriptOwnerClass = scriptOwner->GetClass();
+			continue;
 		}
-		//SubObject != NAME_None can be any UObject FProperty in the ScriptOwner
 		else
 		{
-			if(!bCheckSubobjects)
+			if (serializedLuaScriptOwnerEntry == nullptr)
 			{
 				continue;
 			}
-			FName subObjectPropertyName = objectRepLayout.SubObjectPropertyName;
-			FProperty* propContainingSubobject = scriptOwnerClass->FindPropertyByName(subObjectPropertyName);
-			if(propContainingSubobject)
+			verify(serializedLuaScriptOwnerEntry != nullptr);
+			verify(repLayout != nullptr);
+			verify(uobjectItemPtr != nullptr);
+			verify(scriptOwner != nullptr);
+			verify(scriptOwnerClass != nullptr);
+			verify(serializedLuaScriptOwnerEntry->ValueOwnerID == currentItem.ValueOwnerID)
+			
+			//we have a lua value item with an owner
+
+			const FUnrealLuaRepLayoutProperty* repPropInfo = repLayout->GetRepPropertyForRepIndex(currentItem.RepLayoutPropertyIndex);
+			
+			if (repPropInfo)
 			{
-				if(FObjectProperty* objectPropContainingSubobject = CastField<FObjectProperty>(propContainingSubobject))
+				//SubObject == NAME_None means checking Lua values / FProperties of the current script owner
+				if (repPropInfo->SubObject == NAME_None)
 				{
-					//Found the subobject property
-					
-					UObject* subObj = objectPropContainingSubobject->GetObjectPropertyValue_InContainer(scriptOwner);
-					if(IsValid(subObj))
+					FLuaScriptValue* val = uobjectItemPtr->GetLuaScriptValue(*repPropInfo->StringKey);
+					if(val)
 					{
-						//We have a valid subobject of the Lua Script-owning UObject
-						
-						//Try to get a UnrealLua representation of the subobject, if one exists
-						//We avoid creating an entry just for replication, so maybeItem might fail if
-						//this subobject has not been used in Lua yet. In that case we will just get the 
-						//property value directly further down below
-						FLuaUObjectItem* maybeItem = UnrealLua::UObjectRegistry::TryGetUObjectItem(subObj);
-
-						//examine each replicated property of that subobject
-						for(int32 propIndex = 0; propIndex < objectRepLayout.ReplicatedProperties.Num(); ++propIndex)
+						verify(val->IsNetProperty());
+						if(val->IsType<FPropertyReferenceWrapper>())
 						{
-							const FUnrealLuaRepLayoutProperty& replicatedProp = *objectRepLayout.ReplicatedProperties[propIndex];
-
-							if(maybeItem)
-							{
-								//Item is already known by UnrealLua, so any FProperty or Lua script value
-								//should be reachable via GetLuaScriptValue
-								FLuaScriptValue* val = maybeItem->GetLuaScriptValue(*replicatedProp.StringKey);
-								if(val)
-								{
-									this->ServerProcessValue(val->GetLuaValue(), &replicatedProp);
-								}
-								else
-								{
-									this->ServerProcessValue(nullptr, &replicatedProp);
-								}
-								continue;
-							}
-							else
-							{
-								//subobject not known by UnrealLua yet
-								//->Fall back to looking up the FProperty value directly
-								FProperty* subObjectPropToReplicate = subObj->GetClass()->FindPropertyByName(replicatedProp.Property);
-								if(subObjectPropToReplicate)
-								{
-									//found a property to replicate
-									this->ServerProcessValue({subObj, subObjectPropToReplicate}, &replicatedProp);
-								}
-								else
-								{
-									//no valid Property found in subobjects class-> ignore
-									//A UClass-FProperty layout shouldn't change during game, so no need to add or remove items
-								}	
-							}
+							//need to process it without dirty, since this value might have changed
+							//via Blueprint/C++, in which case no dirty bit is set
+							this->ServerProcessValue(val->GetLuaValue(), currentItem);
+							val->ClearNetDirty();
+							continue;
+						}
+						if(!val->IsNetDirty())
+						{
+							continue;
+						}
+						val->ClearNetDirty();
+						if(val->GetLuaValue().CanBeReplicated())
+						{
+							this->ServerProcessValue(val->GetLuaValue(), currentItem);	
+						}
+						else
+						{
+							//can't be replicated -> nil
+							this->ServerProcessValue(nullptr, currentItem);
 						}
 					}
 					else
 					{
-						//subobject no longer valid -> Remove all entries for that subobj FObject property
-						LUA_LOG("Replicated subobject %s no longer valid, removing all replicated items", *objectRepLayout.SubObjectPropertyName.ToString())
-						for(int32 propIndex = 0; propIndex < objectRepLayout.ReplicatedProperties.Num(); ++propIndex)
-						{
-							const FUnrealLuaRepLayoutProperty& replicatedProp = *objectRepLayout.ReplicatedProperties[propIndex];
-							if(replicatedProp.SubObject == subObjectPropertyName)
-							{
-								FLuaValue currentScriptValue{nullptr};
-								this->ServerProcessValue(currentScriptValue, &replicatedProp);								
-							}
-						}				
-					}
+						//no valid value -> is nil
+						FLuaValue currentScriptValue{nullptr};
+						this->ServerProcessValue(currentScriptValue, currentItem);
+					}	
 				}
+				//SubObject != NAME_None means we are looking for an FObjectProperty in the ScriptOwner
 				else
 				{
-					//no valid prop found -> ignore
-					//A UClass-FProperty layout shouldn't change during game, so no need to add or remove items
+					//But only if enough time has elapsed since the last check
+					if(!bCheckSubobjects)
+					{
+						continue;
+					}
+					FName subObjectPropertyName = repPropInfo->Property;
+					FProperty* propContainingSubobject = scriptOwnerClass->FindPropertyByName(subObjectPropertyName);
+					if(propContainingSubobject)
+					{
+						if(FObjectProperty* objectPropContainingSubobject = CastField<FObjectProperty>(propContainingSubobject))
+						{
+							//Found the subobject property
+							
+							UObject* subObj = objectPropContainingSubobject->GetObjectPropertyValue_InContainer(scriptOwner);
+							if(IsValid(subObj))
+							{
+								//We have a valid subobject of the Lua Script-owning UObject
+								
+								//Try to get a UnrealLua representation of the subobject, if one exists
+								//We avoid creating an entry just for replication, so maybeItem might fail if
+								//this subobject has not been used in Lua yet. In that case we will just get the 
+								//property value directly further down below
+								FLuaUObjectItem* maybeItem = UnrealLua::UObjectRegistry::TryGetUObjectItem(subObj);
+
+								if(maybeItem)
+								{
+									//Item is already known by UnrealLua, so any FProperty or Lua script value
+									//should be reachable via GetLuaScriptValue
+									FLuaScriptValue* val = maybeItem->GetLuaScriptValue(*repPropInfo->StringKey);
+									if(val)
+									{
+										this->ServerProcessValue(val->GetLuaValue(), currentItem);
+									}
+									else
+									{
+										this->ServerProcessValue(nullptr, currentItem);
+									}
+									continue;
+								}
+								else
+								{
+									//subobject not known by UnrealLua yet
+									//->Fall back to looking up the FProperty value directly
+									FProperty* subObjectPropToReplicate = subObj->GetClass()->FindPropertyByName(repPropInfo->Property);
+									if(subObjectPropToReplicate)
+									{
+										//found a property to replicate
+										this->ServerProcessValue({subObj, subObjectPropToReplicate}, currentItem);
+									}
+									else
+									{
+										//no valid Property found in subobjects class-> ignore
+										//A UClass-FProperty layout shouldn't change during game, so no need to add or remove items
+									}	
+								}
+							}
+							else
+							{
+								//subobject no longer valid -> Remove all entries for that subobj FObject property
+								LUA_LOG("Replicated subobject %s no longer valid, removing all replicated items", *repPropInfo->SubObject.ToString())
+								FLuaValue currentScriptValue{nullptr};
+								this->ServerProcessValue(currentScriptValue, currentItem);								
+							}				
+						}
+						else
+						{
+							//Targeted Subobject property is not a FUObjectProperty. this is not supported! 
+							LUA_LOG_ERROR("Replicated subobject property %s is not a FUObjectProperty! This is not supported. Assigning nil value.", *repPropInfo->SubObject.ToString())
+							FLuaValue currentScriptValue{nullptr};
+							this->ServerProcessValue(currentScriptValue, currentItem);								
+						}
+					}
+					else
+					{
+						//no valid prop found -> ignore
+						//A UClass-FProperty layout shouldn't change during game, so no need to add or remove items
+					}
 				}
 			}
 		}
 	}
-	item.ClearNetDirty();
+		/*
+		
+		if (currentItem.IsReplicatedObjectEntry())
+		{
+			UObject* scriptOwner = currentItem.GetLuaScriptOwner(cmp);
+			
+			FLuaScriptInstanceHandle& scriptHandle = UnrealLua::UObjectRegistry::GetLuaScriptHandle(scriptOwner);
+			FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(scriptOwner);
+
+			FLuaRepLayout* repLayout = scriptHandle.GetRepLayout();
+			if(!repLayout)
+			{
+				continue;
+			}	
+
+			bool bCheckSubobjects = false;
+			if(currentServerTime >= this->NextSubobjectReplicationTime)
+			{
+				//Enough time has passed for Subobject replication
+				bCheckSubobjects = true;
+				this->NextSubobjectReplicationTime = currentServerTime + repLayout->ReplicationFrequency;
+			}
+			sol::state_view lua = scriptHandle.GetLuaStateView();
+			
+			
+			UClass* scriptOwnerClass = scriptOwner->GetClass();
+
+			//Go over all replicated object names and try to find the UObjects to replicate
+			for(int32 objindex = 0; objindex < repLayout->ObjectReplayouts.Num(); objindex++)
+			{
+				const FUnrealLuaObjectRepLayout& objectRepLayout = repLayout->ObjectReplayouts[objindex];
+
+				//SubObject == NAME_None is the ScriptOwner currently being examined 
+				if(objectRepLayout.SubObjectPropertyName == NAME_None)
+				{
+					if(!item.IsNetDirty())
+					{
+						//@TODO : Critical!
+						//What if a FPropertyWrapperValue got changed in C++/Blueprint?
+						//in that case the item would not have been marked NetDirty
+						continue;
+					}
+					for(int32 propIndex = 0; propIndex < objectRepLayout.ReplicatedProperties.Num(); propIndex++)
+					{
+						const FUnrealLuaRepLayoutProperty& replicatedProp = *objectRepLayout.ReplicatedProperties[propIndex];
+						//No Subobject name given:
+						//Replicated Property can be either a UProperty of the Script owning UObject or it's a LuaScript value 
+
+						//Net wrappers for FProperties in the Rep Layout should already have been created during
+						//FLuaScriptInstance::InitRepLayout -> GetLuaScriptValueOrCreateEmpty
+						//so there is no need to look up the property directly, just access the Lua script
+						//value to get the wrapper
+
+						//FLuaScriptValue* val = item.GetLuaScriptValue(*replicatedProp.Property.ToString());
+						FLuaScriptValue* val = item.GetLuaScriptValue(*replicatedProp.StringKey);
+						if(val)
+						{
+							verify(val->IsNetProperty());
+							if(val->IsType<FPropertyReferenceWrapper>())
+							{
+								//need to process it without dirty, since this value might have changed
+								//via Blueprint/C++, in which case no dirty bit is set
+								this->ServerProcessValue(val->GetLuaValue(), &replicatedProp);
+								val->ClearNetDirty();
+								continue;
+							}
+							if(!val->IsNetDirty())
+							{
+								continue;
+							}
+							val->ClearNetDirty();
+							if(val->GetLuaValue().CanBeReplicated())
+							{
+								this->ServerProcessValue(val->GetLuaValue(), &replicatedProp);	
+							}
+							else
+							{
+								//can't be replicated -> nil
+								this->ServerProcessValue(nullptr, &replicatedProp);
+							}
+						}
+						else
+						{
+							//no valid value -> is nil
+							FLuaValue currentScriptValue{nullptr};
+							this->ServerProcessValue(currentScriptValue, &replicatedProp);
+						}
+					}
+				}
+				//SubObject != NAME_None can be any UObject FProperty in the ScriptOwner
+				else
+				{
+					if(!bCheckSubobjects)
+					{
+						continue;
+					}
+					FName subObjectPropertyName = objectRepLayout.SubObjectPropertyName;
+					FProperty* propContainingSubobject = scriptOwnerClass->FindPropertyByName(subObjectPropertyName);
+					if(propContainingSubobject)
+					{
+						if(FObjectProperty* objectPropContainingSubobject = CastField<FObjectProperty>(propContainingSubobject))
+						{
+							//Found the subobject property
+							
+							UObject* subObj = objectPropContainingSubobject->GetObjectPropertyValue_InContainer(scriptOwner);
+							if(IsValid(subObj))
+							{
+								//We have a valid subobject of the Lua Script-owning UObject
+								
+								//Try to get a UnrealLua representation of the subobject, if one exists
+								//We avoid creating an entry just for replication, so maybeItem might fail if
+								//this subobject has not been used in Lua yet. In that case we will just get the 
+								//property value directly further down below
+								FLuaUObjectItem* maybeItem = UnrealLua::UObjectRegistry::TryGetUObjectItem(subObj);
+
+								//examine each replicated property of that subobject
+								for(int32 propIndex = 0; propIndex < objectRepLayout.ReplicatedProperties.Num(); ++propIndex)
+								{
+									const FUnrealLuaRepLayoutProperty& replicatedProp = *objectRepLayout.ReplicatedProperties[propIndex];
+
+									if(maybeItem)
+									{
+										//Item is already known by UnrealLua, so any FProperty or Lua script value
+										//should be reachable via GetLuaScriptValue
+										FLuaScriptValue* val = maybeItem->GetLuaScriptValue(*replicatedProp.StringKey);
+										if(val)
+										{
+											this->ServerProcessValue(val->GetLuaValue(), &replicatedProp);
+										}
+										else
+										{
+											this->ServerProcessValue(nullptr, &replicatedProp);
+										}
+										continue;
+									}
+									else
+									{
+										//subobject not known by UnrealLua yet
+										//->Fall back to looking up the FProperty value directly
+										FProperty* subObjectPropToReplicate = subObj->GetClass()->FindPropertyByName(replicatedProp.Property);
+										if(subObjectPropToReplicate)
+										{
+											//found a property to replicate
+											this->ServerProcessValue({subObj, subObjectPropToReplicate}, &replicatedProp);
+										}
+										else
+										{
+											//no valid Property found in subobjects class-> ignore
+											//A UClass-FProperty layout shouldn't change during game, so no need to add or remove items
+										}	
+									}
+								}
+							}
+							else
+							{
+								//subobject no longer valid -> Remove all entries for that subobj FObject property
+								LUA_LOG("Replicated subobject %s no longer valid, removing all replicated items", *objectRepLayout.SubObjectPropertyName.ToString())
+								for(int32 propIndex = 0; propIndex < objectRepLayout.ReplicatedProperties.Num(); ++propIndex)
+								{
+									const FUnrealLuaRepLayoutProperty& replicatedProp = *objectRepLayout.ReplicatedProperties[propIndex];
+									if(replicatedProp.SubObject == subObjectPropertyName)
+									{
+										FLuaValue currentScriptValue{nullptr};
+										this->ServerProcessValue(currentScriptValue, &replicatedProp);								
+									}
+								}				
+							}
+						}
+						else
+						{
+							//no valid prop found -> ignore
+							//A UClass-FProperty layout shouldn't change during game, so no need to add or remove items
+						}
+					}
+				}
+			}
+			item.ClearNetDirty();
+		}
+	}
+	*/
+	
 	return true;
 }
-
-void FLuaObjectValueReplicator::ServerProcessValue(const FLuaValue& currentScriptValue, const FUnrealLuaRepLayoutProperty* const repProp)
+/*
+void FLuaValueReplicator::ServerProcessValue(const FLuaValue& currentScriptValue, const FUnrealLuaRepLayoutProperty* const repProp)
 {
 		//Case : item nil / removed from script -> remove item from replicated values
 
@@ -299,166 +570,250 @@ void FLuaObjectValueReplicator::ServerProcessValue(const FLuaValue& currentScrip
 		this->MarkItemDirty(newValue);
 	}
 }
+*/
+
+void FLuaValueReplicator::ServerProcessValue(const FLuaValue& currentScriptValue, FNetSerializedLuaValue& netValue)
+{
+	//Case : item nil / removed from script -> remove item from replicated values
+
+	if(currentScriptValue.IsNil() || !currentScriptValue.CanBeReplicated())
+	{
+		netValue.LuaValue.Emplace<sol::nil_t>();
+		this->MarkItemDirty(netValue);	
+	}
+	else
+	{
+		if(netValue.LuaValue.IsNil() || !currentScriptValue.Equals(netValue.LuaValue))
+		{
+			//values are different -> update!
+			netValue.LuaValue = currentScriptValue.MakeCopy(true, true);
+			if(netValue.LuaValue.IsNil())
+			{
+				netValue.LuaValue.Emplace<sol::nil_t>();
+				this->MarkItemDirty(netValue);
+			}
+			else
+			{
+				verify(!netValue.LuaValue.IsNil());
+				this->MarkItemDirty(netValue);		
+			}
+		}
+	}
+}
 
 
-void FLuaObjectValueReplicator::PreReplicatedRemove(const TArrayView<int32>& RemovedIndices, int32 FinalSize)
+void FLuaValueReplicator::PreReplicatedRemove(const TArrayView<int32>& RemovedIndices, int32 FinalSize)
 {
 	this->ChangedValues.Reserve(this->ChangedValues.Num() + RemovedIndices.Num());
 	for(const int32 index : RemovedIndices)
 	{
 		FNetSerializedLuaValue& item = Items[index];
 
-		UnrealLua::HashUtility::PrintLuaValue(sol::nil, "Client will remove value ");
-		
-		this->ChangedValues.Emplace(ELuaValueChangeOP::REMOVE, item.RepLayoutPropertyIndex);
+		//UnrealLua::HashUtility::PrintLuaValue(sol::nil, "Client will remove value ");
+		this->ChangedValues.Emplace(item.ValueOwnerID, item.RepLayoutPropertyIndex, ELuaValueChangeOP::REMOVE);
 	}	
 }
 
-void FLuaObjectValueReplicator::PostReplicatedAdd(const TArrayView<int32>& AddedIndices, int32 FinalSize)
+void FLuaValueReplicator::PostReplicatedAdd(const TArrayView<int32>& AddedIndices, int32 FinalSize)
 {
 	this->ChangedValues.Reserve(this->ChangedValues.Num() + AddedIndices.Num());
 	for(const int32 index : AddedIndices)
 	{
+		//Sort new items either in value owners array or into changed values
 		FNetSerializedLuaValue& item = Items[index];
-		this->ChangedValues.Emplace(ELuaValueChangeOP::ADD, item.RepLayoutPropertyIndex);
+		if (item.IsReplicatedObjectEntry())
+		{
+			this->ValueOwners.AddUnique(item);
+		}
+		else
+		{
+			this->ChangedValues.Emplace(item.ValueOwnerID, item.RepLayoutPropertyIndex, ELuaValueChangeOP::ADD);
+		}
 	}	
 }
 
-void FLuaObjectValueReplicator::PostReplicatedChange(const TArrayView<int32>& ChangedIndices, int32 FinalSize)
+void FLuaValueReplicator::PostReplicatedChange(const TArrayView<int32>& ChangedIndices, int32 FinalSize)
 {
 	this->ChangedValues.Reserve(this->ChangedValues.Num() + ChangedIndices.Num());
 	for(const int32 index : ChangedIndices)
     {	
         FNetSerializedLuaValue& item = Items[index];
-    	this->ChangedValues.Emplace(ELuaValueChangeOP::CHANGE, item.RepLayoutPropertyIndex);
+    	this->ChangedValues.Emplace(item.ValueOwnerID, item.RepLayoutPropertyIndex, ELuaValueChangeOP::CHANGE);
     }	
 }
 
-void FLuaObjectValueReplicator::ClientProcessChangedValues()
+
+void FLuaValueReplicator::PostReplicatedReceive(const FPostReplicatedReceiveParameters& Parameters)
+{
+	this->ClientProcessChangedValues();
+}
+
+void FLuaValueReplicator::ClientProcessChangedValues()
 {
 	if(this->ChangedValues.IsEmpty())
 	{
 		return;
 	}
-
-	TArray<FChangedNetLuaValueOp> changedValues = MoveTemp(this->ChangedValues);
 	
+	TArray<FChangedNetLuaValueOp> changedValueOps = MoveTemp(this->ChangedValues);
 	verify(this->ChangedValues.IsEmpty());
-
-	TSet<UObject*> subobjsToProcess{};
-
-	for(FChangedNetLuaValueOp& changedValueOp : changedValues)
+	
+	TMap<uint32, UObject*> ownerItemMap;
+	
+	//Get a list of valid value owners
+	for (FNetSerializedLuaValue& item : this->ValueOwners)
 	{
-		//link up serialized value with op
-		FNetSerializedLuaValue* val = this->Items.FindByPredicate([&changedValueOp](const FNetSerializedLuaValue& item)
+		UObject* owner = item.ResolveUObject(Cast<ULuaScriptReplicationComponent>(this->OwningObject));
+		if (owner)
 		{
-			return item.RepLayoutPropertyIndex == changedValueOp.RepIndex;
-		});
-		if(val)
-		{
-			changedValueOp.ReplicatedLuaValue = val;
+			ownerItemMap.Emplace(item.ValueOwnerID, &item);
 		}
 	}
 
-	UObject* scriptOwner = this->GetReplicatorScriptOwner();
-	if(!IsValid(scriptOwner))
+	TMap<UObject*, TArray<FChangedNetLuaValueOp*>> valueOwnerToChangedValuesMap;
+	TArray<FNetSerializedLuaValue*> removedOwners;
+
+	//link up serialized value with op and owner
+	for(FChangedNetLuaValueOp& changedValueOp : changedValueOps)
 	{
-		//may be ok, since main scriptobject will have NAME_None in its target UObject property
-		return;
-	}
-	FLuaScriptInstanceHandle handle = UnrealLua::UObjectRegistry::GetLuaScriptHandle(scriptOwner);
-
-	FLuaRepLayout* repLayout = handle.GetRepLayout();
-	
-	if(!repLayout)
-	{
-		//Usually only items with a Replayout should be able to register themselves here
-		
-		//@TODO : What if no rep layout found? For now, lets just ignore it and let the client have
-		//useless values hanging around in the Replicator, as long as they don't enter the actual LuaScript
-		//space they won't do any harm. Once an appropriate UObject registers, it will take the replicated values
-		return;
-	}
-
-	UClass* scriptOwnerClass = scriptOwner->GetClass();
-
-	FLuaUObjectItem& scriptOwnerItem = UnrealLua::UObjectRegistry::GetUObjectItem(scriptOwner);
-
-	//Process changed values
-	for(FChangedNetLuaValueOp& changedValue : changedValues)
-	{
-		FUnrealLuaRepLayoutProperty* foundRepProp = repLayout->GetRepPropertyForRepIndex(changedValue.RepIndex);
-
-		if(foundRepProp)
+		//Find the serialized value in the items array
+		FNetSerializedLuaValue* val = this->Items.FindByPredicate([&changedValueOp](const FNetSerializedLuaValue& item)
 		{
-			changedValue.foundRepProp = foundRepProp;
-			FName subObjPropertyName = foundRepProp->SubObject;
-			
-			if(subObjPropertyName == NAME_None)
+			return item.RepLayoutPropertyIndex == changedValueOp.RepIndex && item.ValueOwnerID == changedValueOp.ValueOwnerID;
+		});
+		//if we found a value
+		if(val)
+		{
+			//link it up
+			changedValueOp.ReplicatedLuaValue = val;
+			if (val->IsReplicatedObjectEntry())
 			{
-				this->UpdateScriptOwnerValueInternal(changedValue, foundRepProp, scriptOwnerItem);
+				//This is some kind of lua value owner
+				//Keep track of owners that should get removed
+				if (changedValueOp.Op == ELuaValueChangeOP::REMOVE)
+				{
+					removedOwners.Add(val);
+				}
 			}
 			else
 			{
-				FProperty* prop = scriptOwnerClass->FindPropertyByName(subObjPropertyName);
-				if(FObjectProperty* objProp = CastField<FObjectProperty>(prop))
+				//This is a lua value belonging to some owner
+				
+				//Find owner
+				UObject* owner = ownerItemMap.FindRef(changedValueOp.ValueOwnerID);
+				if (owner)
 				{
-					UObject* subObj = objProp->GetObjectPropertyValue_InContainer(scriptOwner);
-					if(IsValid(subObj))
+					TArray<FChangedNetLuaValueOp*>& entry = valueOwnerToChangedValuesMap.FindOrAdd(owner, {});
+					entry.Add(&changedValueOp);		
+				}
+			}
+		}			
+	}
+	
+	
+	//3. We now have a map of value owners and the chagned values -> Process values
+	for (TTuple<UObject*, TArray<FChangedNetLuaValueOp*>>& ownerValuesPair : valueOwnerToChangedValuesMap)
+	{
+		UObject* valueOwner = ownerValuesPair.Key;
+		if(!IsValid(valueOwner))
+		{
+			//may be ok, since main scriptobject will have NAME_None in its target UObject property
+			return;
+		}
+		
+		//Gather needed items for value processing
+		UClass* scriptOwnerClass = valueOwner->GetClass();
+		FLuaUObjectItem& scriptOwnerItem = UnrealLua::UObjectRegistry::GetUObjectItem(valueOwner);
+		FLuaScriptInstanceHandle handle = scriptOwnerItem.GetLuaScriptHandle();
+		FLuaRepLayout* repLayout = handle.GetRepLayout();
+	
+		if(!repLayout)
+		{
+			//Usually only items with a Replayout should be able to register themselves here
+		
+			//@TODO : What if no rep layout found? For now, lets just ignore it and let the client have
+			//useless values hanging around in the Replicator, as long as they don't enter the actual LuaScript
+			//space they won't do any harm. Once an appropriate UObject registers, it will take the replicated values
+			return;
+		}
+
+		const TArray<FChangedNetLuaValueOp*>& changedValuesInThisOwner = ownerValuesPair.Value;
+		
+		//Process changed values
+		for(FChangedNetLuaValueOp* changedValue : changedValuesInThisOwner)
+		{
+			FUnrealLuaRepLayoutProperty* foundRepProp = repLayout->GetRepPropertyForRepIndex(changedValue->RepIndex);
+
+			if(foundRepProp)
+			{
+				changedValue->foundRepProp = foundRepProp;
+				FName subObjPropertyName = foundRepProp->SubObject;
+
+				//If subobj property name == NAME_None, treat it as a lua value in the owner
+				if(subObjPropertyName == NAME_None)
+				{
+					this->UpdateScriptOwnerValueInternal(*changedValue, foundRepProp, scriptOwnerItem);
+				}
+				//Otherwise look for an FProperty with the same name which could have a subobject 
+				else
+				{
+					FProperty* prop = scriptOwnerClass->FindPropertyByName(subObjPropertyName);
+					if(FObjectProperty* objProp = CastField<FObjectProperty>(prop))
 					{
-						this->UpdateSubobjectPropertyValueInternal(changedValue, foundRepProp, subObj);
+						UObject* subObj = objProp->GetObjectPropertyValue_InContainer(valueOwner);
+						if(IsValid(subObj))
+						{
+							this->UpdateSubobjectPropertyValueInternal(*changedValue, foundRepProp, subObj);
+						}
 					}
 				}
 			}
-		}
-		else
-		{
-			//@TODO : What if no rep layout property found? For now, lets just ignore it and let the client have
-			//useless values hanging around in the Replicator, as long as they don't enter the actual LuaScript
-			//space they won't harm
+			else
+			{
+				//@TODO : What if no rep layout property found? For now, lets just ignore it and let the client have
+				//useless values hanging around in the Replicator, as long as they don't enter the actual LuaScript
+				//space they won't cause any harm
+			}
 		}
 	}
-
-	this->CallRepNotifies(changedValues);
-}
-
-void FLuaObjectValueReplicator::InitialReplication()
-{
-	for(FNetSerializedLuaValue& item : Items)
+	
+	this->CallRepNotifies(valueOwnerToChangedValuesMap);
+	
+	for (const FNetSerializedLuaValue* removedowner : removedOwners)
 	{
-		this->ChangedValues.Emplace(ELuaValueChangeOP::ADD, item.RepLayoutPropertyIndex);
+		this->ValueOwners.RemoveSingleSwap(*removedowner);
 	}
-	this->ClientProcessChangedValues();
 }
 
-void FLuaObjectValueReplicator::UpdateScriptOwnerValueInternal(const FChangedNetLuaValueOp& changedValue, FUnrealLuaRepLayoutProperty* foundRepProp, FLuaUObjectItem& targetObject)
+
+void FLuaValueReplicator::UpdateScriptOwnerValueInternal(const FChangedNetLuaValueOp& changedValue, FUnrealLuaRepLayoutProperty* foundRepProp, FLuaUObjectItem& targetObject)
 {
 	if(changedValue.Op == ELuaValueChangeOP::CHANGE)
 	{
-		LUA_LOG_WARNING("Changing replicated %s for object %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetObject.GetUObject()))
+		LUA_LOG("Changing replicated %s for object %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetObject.GetUObject()))
 		verify(changedValue.ReplicatedLuaValue != nullptr);
 		targetObject.SetScriptValue(foundRepProp->Property, changedValue.ReplicatedLuaValue->LuaValue, false);
 	}
 	else if(changedValue.Op == ELuaValueChangeOP::ADD)
 	{
-		LUA_LOG_WARNING("Adding replicated %s for object %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetObject.GetUObject()))
+		LUA_LOG("Adding replicated %s for object %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetObject.GetUObject()))
 		verify(changedValue.ReplicatedLuaValue != nullptr);
 		targetObject.SetScriptValue(foundRepProp->Property, changedValue.ReplicatedLuaValue->LuaValue, false);
 	}
 	else if(changedValue.Op == ELuaValueChangeOP::REMOVE)
 	{
-		LUA_LOG_WARNING("Removing replicated %s for object %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetObject.GetUObject()))
+		LUA_LOG("Removing replicated %s for object %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetObject.GetUObject()))
 		verify(changedValue.ReplicatedLuaValue == nullptr);
 		targetObject.SetScriptValue(foundRepProp->Property, FLuaValue{nullptr}, false);
 	}
 }
 
-void FLuaObjectValueReplicator::UpdateSubobjectPropertyValueInternal(FChangedNetLuaValueOp& changedValue, FUnrealLuaRepLayoutProperty* foundRepProp, UObject* targetSubobject)
+void FLuaValueReplicator::UpdateSubobjectPropertyValueInternal(const  FChangedNetLuaValueOp& changedValue, FUnrealLuaRepLayoutProperty* foundRepProp, UObject* targetSubobject)
 {
 	FProperty* prop = targetSubobject->GetClass()->FindPropertyByName(foundRepProp->Property);
 	if(prop)
 	{
-		LUA_LOG_WARNING("Replicating Property %s in subobject %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetSubobject))
+		LUA_LOG("Replicating Property %s in subobject %s", *foundRepProp->Property.ToString(), *GetNameSafe(targetSubobject))
 
 		//update value in subobject
 		if(changedValue.ReplicatedLuaValue != nullptr)
@@ -483,80 +838,81 @@ void FLuaObjectValueReplicator::UpdateSubobjectPropertyValueInternal(FChangedNet
 }
 
 
-void FLuaObjectValueReplicator::CallRepNotifies(TArray<FChangedNetLuaValueOp>& changedValues)
+void FLuaValueReplicator::CallRepNotifies(const TMap<UObject*, TArray<FChangedNetLuaValueOp*>>& valueOwnerToChangedValuesMap)
 {
-	UObject* owner = this->GetReplicatorScriptOwner();
-	if (!owner)
+	for (const TTuple<UObject*, TArray<FChangedNetLuaValueOp*>>& ownerValuesPair : valueOwnerToChangedValuesMap)
 	{
-		return;
-	}
-	TArray<FLuaUObjectItem*> changedItems{};
-	LUA_LOG_WARNING("Attempting to call OnReps for %s ", *GetNameSafe(owner))
-	for(FChangedNetLuaValueOp& changedValue : changedValues)
-	{
-		if(!changedValue.foundRepProp)
+		UObject* valueOwner = ownerValuesPair.Key;
+		if(!IsValid(valueOwner))
 		{
-			continue;
+			//may be ok, since main scriptobject will have NAME_None in its target UObject property
+			return;
 		}
-		if(!IsValid(owner))
+		FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(valueOwner);
+		TArray<FLuaUObjectItem*> changedItems{};
+		LUA_LOG("Attempting to call OnReps for %s ", *GetNameSafe(valueOwner))
+		for(const FChangedNetLuaValueOp* changedValuePtr : ownerValuesPair.Value)
 		{
-			continue;
-		}
-
-		FUnrealLuaRepLayoutProperty* repProp = changedValue.foundRepProp;
-		FLuaUObjectItem& item = UnrealLua::UObjectRegistry::GetUObjectItem(owner);
-		changedItems.AddUnique(&item);
-		if(repProp->SubObject == NAME_None)
-		{
-			LUA_LOG_WARNING("Attempting to call OnRep %s for %s ", *repProp->OnRep, *repProp->Property.ToString())
-
-			
-			item.BroadcastValue(*changedValue.foundRepProp->Property.ToString());
-		}
-		else
-		{	
-			LUA_LOG_WARNING("Attempting to call OnRep %s for Subobject %s::%s ", *repProp->OnRep, *repProp->SubObject.ToString(), *repProp->Property.ToString())
-
-			sol::function repFunc = item.GetLuaScriptFunction(repProp->OnRep);
-			if(repFunc.valid())
+			const FChangedNetLuaValueOp& changedValue = *changedValuePtr;
+			if(!changedValue.foundRepProp)
 			{
-				if(changedValue.ReplicatedLuaValue != nullptr)
-				{
-					if(repProp->PassKeyOnRep)
-					{
-						UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, owner, changedValue.foundRepProp->Property, changedValue.ReplicatedLuaValue->LuaValue);	
-					}
-					else
-					{
-						UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, owner, changedValue.ReplicatedLuaValue->LuaValue);
-					}
-					
-				}
-				else
-				{
-					if(repProp->PassKeyOnRep)
-					{
-						UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, owner, changedValue.foundRepProp->Property, sol::nil);
-					}
-					else
-					{
-						UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, owner, sol::nil);
-					}
-				}
-					
+				continue;
 			}
-		}
+			FUnrealLuaRepLayoutProperty* repProp = changedValue.foundRepProp;
+			changedItems.AddUnique(&item);
+			if(repProp->SubObject == NAME_None)
+			{
+				LUA_LOG("Attempting to call OnRep %s for %s ", *repProp->OnRep, *repProp->Property.ToString())
+				item.BroadcastValue(*changedValue.foundRepProp->Property.ToString());
+			}
+			else
+			{	
+				LUA_LOG("Attempting to call OnRep %s for Subobject %s::%s ", *repProp->OnRep, *repProp->SubObject.ToString(), *repProp->Property.ToString())
+
+				sol::function repFunc = item.GetLuaScriptFunction(repProp->OnRep);
+				if(repFunc.valid())
+				{
+					if(changedValue.ReplicatedLuaValue != nullptr)
+					{
+						if(repProp->PassKeyOnRep)
+						{
+							UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, valueOwner, changedValue.foundRepProp->Property, changedValue.ReplicatedLuaValue->LuaValue);	
+						}
+						else
+						{
+							UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, valueOwner, changedValue.ReplicatedLuaValue->LuaValue);
+						}
+					
+					}
+					else
+					{
+						if(repProp->PassKeyOnRep)
+						{
+							UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, valueOwner, changedValue.foundRepProp->Property, sol::nil);
+						}
+						else
+						{
+							UnrealLua::LuaScriptCall::CallLuaFunctionSafe(repFunc, valueOwner, sol::nil);
+						}
+					}
+					
+				}
+			}
+		}	
 	}
 }
 
-void FLuaObjectValueReplicator::PostReplicatedReceive(const FPostReplicatedReceiveParameters& Parameters)
-{
-	this->ClientProcessChangedValues();
-}
 
-void FLuaObjectValueReplicator::ResetValues()
+void FLuaValueReplicator::ResetValues()
 {
 	this->Items.Empty();
 	this->MarkArrayDirty();
 	this->ChangedValues.Empty();
+}
+
+uint32 FLuaValueReplicator::GetNewOwnerID()
+{
+	++this->OwnerIDCounter;
+	verify(this->OwnerIDCounter != 0);
+	return this->OwnerIDCounter;
 }
