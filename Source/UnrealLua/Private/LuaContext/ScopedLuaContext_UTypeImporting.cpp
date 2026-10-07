@@ -19,10 +19,7 @@ struct FLuaUEnumMapping;
 void FScopedLuaContext::SetupUnrealTypes()
 {
 	LUA_LOG("Lua Context : Setting up global utility functions")
-
 	
-	this->RegistryTable["require"] = [this](std::string str, bool bAllowModding = true, bool bTrackTable = false){ return this->ImportLuaScript(str, bAllowModding, bTrackTable); };
-
 	this->RegistryTable["IsValid"] = FScopedLuaContext::IsUObjectValid;
 	this->RegistryTable["super"] = sol::resolve<int(lua_State*)>(UnrealLua::LuaScriptCall::SuperCall);
 	this->RegistryTable["Super"] = sol::resolve<int(lua_State*)>(UnrealLua::LuaScriptCall::SuperCall);
