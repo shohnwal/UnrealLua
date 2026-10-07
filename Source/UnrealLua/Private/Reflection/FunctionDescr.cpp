@@ -145,7 +145,7 @@ sol::variadic_results FFunctionDescr::PerformCall(UObject* obj, const sol::varia
 	FProperty* returnParm = this->ReturnParm; 
 	bool bHasAnyOutput = returnParm != nullptr || !this->OutParms.IsEmpty();
 	
-	results.reserve(this->OutParms.Num() + (!bHasAnyOutput && UnrealLua::Compilation::WITH_UFUNCTION_CHAINING) + static_cast<bool>(returnParm != nullptr));
+	results.reserve(this->OutParms.Num() + (!bHasAnyOutput && UnrealLua::Compilation::WITH_UFUNCTION_CHAINING) + static_cast<int>(returnParm != nullptr));
 	
 	if constexpr(UnrealLua::Compilation::WITH_UFUNCTION_CHAINING)
 	{
@@ -495,7 +495,7 @@ int FFunctionDescr::EvaluateReturnValues(void* funcMemory, lua_State* lua, FUFun
 	{
 		returnValuesLeftToProcess--;
 
-		//Return value does need to use input record
+		//Return value does not use input record
 		FPushPropertyValueParams parms{ this->ReturnParm, funcMemory, 0, lua, nullptr};
 		numPushed = UnrealLua::PropertyHelper::GetPropertyValue_InContainer(parms);
 	}
@@ -506,9 +506,9 @@ int FFunctionDescr::EvaluateReturnValues(void* funcMemory, lua_State* lua, FUFun
 			break;
 		}
 		returnValuesLeftToProcess--;
-		//This pushes it into the out array, but does not modify the original parameters
+
 		FPushPropertyValueParams parms{prop, funcMemory, 0, lua, &inputRecord};
-		numPushed = UnrealLua::PropertyHelper::GetPropertyValue_InContainer(parms);
+		numPushed += UnrealLua::PropertyHelper::GetPropertyValue_InContainer(parms);
 	}
 	return numPushed;
 }
@@ -533,7 +533,7 @@ void FFunctionDescr::EvaluateReturnValues(void* funcMemory, sol::variadic_result
 	{
 		returnValuesLeftToProcess--;
 		
-		//Return value does need to use input record
+		//Return value does not use input record
 		FGetPropertyValueParams parms{ this->ReturnParm, funcMemory, 0, lua, nullptr};
 		results.push_back(UnrealLua::PropertyHelper::GetPropertyValue_InContainer(parms));
 	}
