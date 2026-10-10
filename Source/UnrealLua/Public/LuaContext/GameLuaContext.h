@@ -14,8 +14,6 @@
  * 
  */
 
-class USeamlessTravelLuaDataStorage;
-
 UENUM()
 enum class ELuaStateType : uint8
 {
@@ -83,9 +81,7 @@ public:
 	
 	void NotifyWorldBeginPlay();
 	void NotifyWorldEndPlay();
-
-	UPROPERTY()
-	TObjectPtr<USeamlessTravelLuaDataStorage> SeamlessTravelLuaDataStorage = nullptr;
+	
 private:
 	TSharedPtr<FScopedLuaContext> LuaContext;
 
