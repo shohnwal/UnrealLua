@@ -264,8 +264,9 @@ bool UnrealLua::Compiler::CompileClassPrototype(FUnrealLuaCompilerUClassPrototyp
 	
 	if (!staticProperties.IsEmpty())
 	{
+		FString staticDataName = parentClass->GetName() + "_StaticLuaClassData";
 		UScriptStruct* parentStaticDataStruct = parentClass->GetSparseClassDataStruct();
-		staticDataStruct = NewObject<UScriptStruct>(newClass,"StaticData", RF_Public | RF_MarkAsNative);
+		staticDataStruct = NewObject<UScriptStruct>(newClass, *staticDataName, RF_Public | RF_MarkAsNative);
 		staticDataStruct->SetSuperStruct(parentStaticDataStruct);
 		
 		//For now, static properties can not be saved
@@ -329,6 +330,8 @@ bool UnrealLua::Compiler::CompileClassPrototype(FUnrealLuaCompilerUClassPrototyp
 	newClass->AssembleReferenceTokenStream(true);
 	prototype.SetFinishedCompilation();
 	
+	
+	//Initialize CDO properties with default values
 	UObject* cdo = newClass->GetDefaultObject(true);
 	if (!IsValid(cdo))
 	{
@@ -364,8 +367,6 @@ bool UnrealLua::Compiler::CompileClassPrototype(FUnrealLuaCompilerUClassPrototyp
 				TSetPropertyValueParams params{prop, cdo, 0, propProto.EvaluatedDefaultValue};
 				UnrealLua::PropertyHelper::SetPropertyValue_InContainer(params);
 			}
-			 
-
 		}	
 		fieldContainerProto = fieldContainerProto->ParentClassPrototype;
 	}
