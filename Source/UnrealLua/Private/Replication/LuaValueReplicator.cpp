@@ -31,7 +31,7 @@ void FLuaValueReplicator::ServerAddReplicatedObject(const FWeakRegisteredLuaNetO
 	
 	//Add entry for rep layout owner first
 	FNetSerializedLuaValue& ownerEntry = this->Items.Emplace_GetRef(ownerID, FLuaRepLayout::ReplayoutOwnerIndex);
-	ownerEntry.LuaValue.Emplace<FRegisteredLuaNetObjectInfo>(repObjectInfo);
+	ownerEntry.LuaValue.Emplace<FRegisteredLuaNetObjectInfo>(FRegisteredLuaNetObjectInfo{repObjectInfo.RegisteredObject.Get(), repObjectInfo.LuaNetHandle});
 
 	//All following entries are values belonging to that owner
 	//Emplace empty entries for each replicated value
@@ -666,7 +666,7 @@ void FLuaValueReplicator::ClientProcessChangedValues()
 		UObject* owner = item.ResolveUObject(Cast<ULuaScriptReplicationComponent>(this->OwningObject));
 		if (owner)
 		{
-			ownerItemMap.Emplace(item.ValueOwnerID, &item);
+			ownerItemMap.Emplace(item.ValueOwnerID, owner);
 		}
 	}
 

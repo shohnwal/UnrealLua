@@ -1,11 +1,10 @@
 #pragma once
 #include "sol/sol.hpp"
-#include "LuaValue/LuaValue.h"
+#include "LuaValue/LuaScriptValue.h"
 #include "Reflection/PropertyHelperTypes.h"
 #include "LuaScriptValuesContainer.generated.h"
 
 struct FUnrealLuaNameEntryKey;
-struct FLuaScriptValue;
 
 USTRUCT()
 struct UNREALLUA_API FLuaScriptValuesContainer

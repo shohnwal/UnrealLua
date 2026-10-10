@@ -28,6 +28,59 @@ FLuaScriptStructMemory* FLuaScriptStructMemory::Allocate(const UScriptStruct* In
 	return StructMemory;
 }
 
+
+FLuaScriptStructMemory::FLuaScriptStructMemory(const UScriptStruct* ss, const void* memToCopyFrom)
+	: FLuaGCObject(), ScriptStruct(ss)
+{
+	ScriptStruct->InitializeStruct(this->GetMemory());
+		
+	if (memToCopyFrom)
+	{
+		ScriptStruct->CopyScriptStruct(this->GetMemory(), memToCopyFrom);
+	}
+}
+
+
+FLuaScriptStructMemory::~FLuaScriptStructMemory()
+{
+	ScriptStruct->DestroyStruct(this->GetMemory());
+}
+
+void FLuaScriptStructMemory::AddReferencedObjects(FReferenceCollector& Collector)
+{
+	//LUA_LOG("Adding references in %s", *GetNameSafe(this->GetScriptStruct()));
+	if(this->ScriptStruct && this->GetMemory())
+	{
+	
+		Collector.AddReferencedObject(this->ScriptStruct);
+		Collector.AddReferencedObjects(this->ScriptStruct, this->GetMemory(), nullptr);
+		//Collector.AddPropertyReferencesWithStructARO(this->GetScriptStruct(), this->GetMemory());
+	}
+}
+
+uint8* FLuaScriptStructMemory::GetMemory() const
+{
+	return Align(const_cast<uint8*>(this->Data), ScriptStruct->GetMinAlignment());
+}
+
+const UScriptStruct* FLuaScriptStructMemory::GetScriptStruct() const
+{
+	return this->ScriptStruct;
+}
+
+void FLuaScriptStructMemory::AddRef()
+{
+	this->RefCount++;
+	verifyf(this->RefCount >= 0, TEXT("RefCount of FLuaScriptStructMemory %p is %d"), this, this->RefCount);
+}
+
+int32 FLuaScriptStructMemory::RemoveRef()
+{
+	this->RefCount--;
+	verifyf(this->RefCount >= 0, TEXT("RefCount of FLuaScriptStructMemory %p is %d"), this, this->RefCount);
+	return this->RefCount;
+}
+
 void FLuaScriptStruct::RegisterUsertype(sol::state_view& lua)
 {
 	lua.new_usertype<FLuaScriptStruct>(
@@ -68,8 +121,7 @@ FLuaScriptStruct::FLuaScriptStruct(const UScriptStruct* metaStruct)
 	: FLuaScriptStructBase(metaStruct)
 {
 	verify(this->PropertyMapping != nullptr);
-	this->LuaMemory = FLuaScriptStructMemory::Allocate(metaStruct, nullptr);
-	verify(this->LuaMemory != nullptr);
+	this->MemoryVariant.Emplace<FLuaScriptStructMemory*>(FLuaScriptStructMemory::Allocate(metaStruct, nullptr));
 	this->AddRef();
 }
 
@@ -77,12 +129,11 @@ extern const FName HasNativeMakeMetaDataKey;
 extern const FName NativeBreakFuncMetaDataKey;
 
 FLuaScriptStruct::FLuaScriptStruct(const FLuaUStruct* metaData, sol::variadic_args args)
-	: FLuaScriptStructBase(Cast<UScriptStruct>(metaData->TryLoad())),  Data(nullptr)
+	: FLuaScriptStructBase(Cast<UScriptStruct>(metaData->TryLoad())), MemoryVariant()
 {
 	verify(this->PropertyMapping != nullptr);
 	const UScriptStruct* ss = metaData->TryLoad();
-	this->LuaMemory = FLuaScriptStructMemory::Allocate(ss, nullptr);
-	verify(this->Data != nullptr);
+	this->MemoryVariant.Emplace<FLuaScriptStructMemory*>(FLuaScriptStructMemory::Allocate(ss, nullptr));
 	this->AddRef();
 
 	//Early out if there are no arguments, no need to loop over all properties,  instead initialize them to defaults
@@ -114,11 +165,9 @@ FLuaScriptStruct::FLuaScriptStruct(const FLuaUStruct* metaData, sol::variadic_ar
 
 //copy constructor
 FLuaScriptStruct::FLuaScriptStruct(const FLuaScriptStruct& other)
-	: FLuaScriptStructBase(other.GetScriptStruct()),  Data(nullptr)
+	: FLuaScriptStructBase(other.GetScriptStruct()),  MemoryVariant(other.MemoryVariant)
 {
 	verify(this->PropertyMapping != nullptr);
-	this->Data = other.Data;
-	this->bOwnsMemory = other.bOwnsMemory;
 	if(this->OwnsMemory())
 	{
 		//we own memory, so just increase ref counter
@@ -127,9 +176,8 @@ FLuaScriptStruct::FLuaScriptStruct(const FLuaScriptStruct& other)
 }
 
 FLuaScriptStruct::FLuaScriptStruct(FLuaScriptStruct&& other) noexcept
-	: FLuaScriptStructBase(other.GetScriptStruct()), Data(other.Data)
+	: FLuaScriptStructBase(other.GetScriptStruct()), MemoryVariant(other.MemoryVariant)
 {
-	this->bOwnsMemory = other.bOwnsMemory;
 	if(this->OwnsMemory())
 	{
 		//must add ref BEFORE decreasing ref from other, to keep data alive
@@ -137,7 +185,7 @@ FLuaScriptStruct::FLuaScriptStruct(FLuaScriptStruct&& other) noexcept
 	}
 	verify(this->PropertyMapping != nullptr);
 	other.Reset();
-	verify(other.Data == nullptr);
+	verify(other.MemoryVariant.IsType<std::nullptr_t>());
 	verify(other.PropertyMapping == nullptr);
 }
 
@@ -147,36 +195,32 @@ FLuaScriptStruct::FLuaScriptStruct(FLuaScriptStruct&& other) noexcept
 //	- getting a class member property
 FLuaScriptStruct::FLuaScriptStruct(const UScriptStruct* metaStruct, void* otherMemory, bool asReference, bool bIsConst)
 	: FLuaScriptStructBase(metaStruct)
-	, Data(nullptr)
+	, MemoryVariant()
 {
 	verify(this->PropertyMapping != nullptr);
 	if(asReference)
 	{
-		this->Data = static_cast<uint8*>(otherMemory);
-		this->bOwnsMemory = false;
+		this->MemoryVariant.Emplace<void*>(static_cast<uint8*>(const_cast<void*>(otherMemory)));
 	}
 	else
 	{
-		this->LuaMemory = FLuaScriptStructMemory::Allocate(metaStruct, otherMemory);
-		verify(this->LuaMemory != nullptr);
+		this->MemoryVariant.Emplace<FLuaScriptStructMemory*>(FLuaScriptStructMemory::Allocate(metaStruct, otherMemory));
 		this->AddRef();
 	}
 }
 
 FLuaScriptStruct::FLuaScriptStruct(const UScriptStruct* metaStruct, const void* otherMemory, bool asReference)
 	: FLuaScriptStructBase(metaStruct)
-	,  Data(nullptr)
+	, MemoryVariant()
 {
 	verify(this->PropertyMapping != nullptr);
 	if(asReference)
 	{
-		this->Data = static_cast<uint8*>(const_cast<void*>(otherMemory));
-		this->bOwnsMemory = false;
+		this->MemoryVariant.Emplace<void*>(static_cast<uint8*>(const_cast<void*>(otherMemory)));
 	}
 	else
 	{
-		LuaMemory = FLuaScriptStructMemory::Allocate(metaStruct, otherMemory);
-		verify(this->Data != nullptr);
+		this->MemoryVariant.Emplace<FLuaScriptStructMemory*>(FLuaScriptStructMemory::Allocate(metaStruct, otherMemory));
 		this->AddRef();
 	}
 }
@@ -184,17 +228,22 @@ FLuaScriptStruct::FLuaScriptStruct(const UScriptStruct* metaStruct, const void* 
 //Copy from a UProperty (class or function)
 FLuaScriptStruct::FLuaScriptStruct(FStructProperty * prop, const void * sourcePtr)
 	: FLuaScriptStructBase(prop->Struct)
-	, Data(nullptr)
+	, MemoryVariant()
 {
 	verify(this->PropertyMapping != nullptr);
 	const UScriptStruct* ss = prop->Struct;
-	LuaMemory = FLuaScriptStructMemory::Allocate(ss, sourcePtr);
+	this->MemoryVariant.Emplace<FLuaScriptStructMemory*>(FLuaScriptStructMemory::Allocate(ss, sourcePtr));
 	this->AddRef();
 }
 
 FLuaScriptStruct::~FLuaScriptStruct()
 {
 	this->Reset();
+}
+
+bool FLuaScriptStruct::IsInitialized() const
+{
+	return this->IsValid();
 }
 
 sol::object FLuaScriptStruct::MakeFromPath(const std::string& path, sol::this_state lua_)
@@ -218,9 +267,8 @@ sol::object FLuaScriptStruct::MakeFromPath(const std::string& path, sol::this_st
 void FLuaScriptStruct::Reset()
 {
 	this->RemoveRef();
-	this->Data = nullptr;
+	this->MemoryVariant.Emplace<std::nullptr_t>();
 	this->PropertyMapping = nullptr;
-	this->bOwnsMemory = false;
 }
 
 int FLuaScriptStruct::__index(lua_State* lua)
@@ -325,18 +373,26 @@ void* FLuaScriptStruct::GetMemoryNonVirtual() const
 {
 	if(this->OwnsMemory())
 	{
-		return this->LuaMemory->GetMemory();
+		return this->MemoryVariant.Get<FLuaScriptStructMemory*>()->GetMemory();
 	}
-	return this->Data;	
+	else if (this->MemoryVariant.IsType<void*>())
+	{
+		return this->MemoryVariant.Get<void*>();
+	}
+	return nullptr;
 }
 
 void* FLuaScriptStruct::GetMemory() const
 {
 	if(this->OwnsMemory())
 	{
-		return this->LuaMemory->GetMemory();
+		return this->MemoryVariant.Get<FLuaScriptStructMemory*>()->GetMemory();
 	}
-	return this->Data;
+	else if (this->MemoryVariant.IsType<void*>())
+	{
+		return this->MemoryVariant.Get<void*>();
+	}
+	return nullptr;
 }
 
 bool FLuaScriptStruct::IsReference() const
@@ -346,21 +402,20 @@ bool FLuaScriptStruct::IsReference() const
 
 void FLuaScriptStruct::AddRef()
 {
-	this->bOwnsMemory = true;
-	this->LuaMemory->AddRef();
-	//RegisterGCObject();
+	verify(this->MemoryVariant.IsType<FLuaScriptStructMemory*>());
+	this->MemoryVariant.Get<FLuaScriptStructMemory*>()->AddRef();
 }
 
 int32 FLuaScriptStruct::RemoveRef()
 {
 	if(this->OwnsMemory())
 	{
-		if(this->LuaMemory->RemoveRef() == 0)
+		if(this->MemoryVariant.Get<FLuaScriptStructMemory*>()->RemoveRef() == 0)
 		{
 			//this->LuaMemory->~FLuaScriptStructMemory();
 			//FMemory::Free(this->LuaMemory);
-			delete this->LuaMemory;
-			this->LuaMemory = nullptr;
+			delete this->MemoryVariant.Get<FLuaScriptStructMemory*>();
+			this->MemoryVariant.Emplace<std::nullptr_t>(nullptr);
 		}
 	}
 	return -1;
@@ -368,10 +423,10 @@ int32 FLuaScriptStruct::RemoveRef()
 
 bool FLuaScriptStruct::OwnsMemory() const
 {
-	return this->bOwnsMemory;
+	return this->MemoryVariant.IsType<FLuaScriptStructMemory*>();
 }
 
 const UScriptStruct* FLuaScriptStruct::GetScriptStruct() const
 {
-	return this->bOwnsMemory ? this->LuaMemory->GetScriptStruct() : this->PropertyMapping != nullptr ? Cast<UScriptStruct>(this->PropertyMapping->OwningField) : nullptr;
+	return this->OwnsMemory() ? this->MemoryVariant.Get<FLuaScriptStructMemory*>()->GetScriptStruct() : this->PropertyMapping != nullptr ? Cast<UScriptStruct>(this->PropertyMapping->OwningField) : nullptr;
 }

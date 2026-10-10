@@ -1175,11 +1175,7 @@ int FUnrealLuaLightUserdataWrapper::__SpawnActor(lua_State* L) const
 
 bool FUnrealLuaLightUserdataWrapper::IsInvalidUObjectReference() const
 {
-	if (this->IsUObject())
-	{
-		return !this->GetUObjectItemHandle()->IsValid();
-	}
-	return false;
+	return !this->IsValidUObjectReference();
 }
 
 bool FUnrealLuaLightUserdataWrapper::IsValidUObjectReference() const

@@ -6,57 +6,6 @@
 #include "UObjectRegistry/LuaUObjectRegistry.h"
 
 
-FLuaScriptStructMemory::FLuaScriptStructMemory(const UScriptStruct* ss, const void* memToCopyFrom)
-	: FLuaGCObject(), ScriptStruct(ss)
-{
-	ScriptStruct->InitializeStruct(this->GetMemory());
-		
-	if (memToCopyFrom)
-	{
-		ScriptStruct->CopyScriptStruct(this->GetMemory(), memToCopyFrom);
-	}
-}
-
-
-FLuaScriptStructMemory::~FLuaScriptStructMemory()
-{
-	ScriptStruct->DestroyStruct(this->GetMemory());
-}
-
-void FLuaScriptStructMemory::AddReferencedObjects(FReferenceCollector& Collector)
-{
-	//LUA_LOG("Adding references in %s", *GetNameSafe(this->GetScriptStruct()));
-	if(this->ScriptStruct && this->GetMemory())
-	{
-	
-		Collector.AddReferencedObject(this->ScriptStruct);
-		Collector.AddReferencedObjects(this->ScriptStruct, this->GetMemory(), nullptr);
-		//Collector.AddPropertyReferencesWithStructARO(this->GetScriptStruct(), this->GetMemory());
-	}
-}
-
-uint8* FLuaScriptStructMemory::GetMemory() const
-{
-	return Align(const_cast<uint8*>(this->Data), ScriptStruct->GetMinAlignment());
-}
-
-const UScriptStruct* FLuaScriptStructMemory::GetScriptStruct() const
-{
-	return this->ScriptStruct;
-}
-
-void FLuaScriptStructMemory::AddRef()
-{
-	this->RefCount++;
-	verifyf(this->RefCount >= 0, TEXT("RefCount of FLuaScriptStructMemory %p is %d"), this, this->RefCount);
-}
-
-int32 FLuaScriptStructMemory::RemoveRef()
-{
-	this->RefCount--;
-	verifyf(this->RefCount >= 0, TEXT("RefCount of FLuaScriptStructMemory %p is %d"), this, this->RefCount);
-	return this->RefCount;
-}
 
 FLuaScriptStructBase::~FLuaScriptStructBase()
 {

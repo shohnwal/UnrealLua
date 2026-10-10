@@ -4,19 +4,54 @@
 
 #include "CoreMinimal.h"
 #include "Interface/LuaScriptStructBase.h"
+#include "Misc/TVariant.h"
 #include "sol/sol.hpp"
+#include "UObject/ObjectPtr.h"
+#include "UObject/StructOpsTypeTraits.h"
 
 class UBlueprintFunctionLibrary;
 class FLuaUStruct;
 
 
+struct UNREALLUA_API FLuaScriptStructMemory : public FLuaGCObject
+{
+	FLuaScriptStructMemory(const UScriptStruct* ss, const void* memToCopyFrom);
+	virtual ~FLuaScriptStructMemory() override;
+
+	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
+	void AddRef();
+	int32 RemoveRef();
+
+	static FLuaScriptStructMemory* Allocate(const UScriptStruct* InScriptStruct, const void* memToCopyFrom);
+
+	uint8* GetMemory() const;
+	const UScriptStruct* GetScriptStruct() const;
+	TObjectPtr<const UScriptStruct> ScriptStruct = nullptr;
+	int32 RefCount = 0;
+	uint8 Data[];
+};
+
+/*
+ std::nullptr_t						- uninitialized
+ void*								- native FStructProperty memory ptr reference
+ FInstancedStruct*					- native FInstancedStruct property memory reference
+ FSharedStruct*						- either native FSharedStruct property reference or a Lua-allocated shared struct, added a ref to the ref counter
+ FLuaScriptStructMemory*			- Lua-allocated script struct memory
+ FLuaInstancedScriptStructMemory*	- Lua-allocated instanced script struct
+ */
+typedef TVariant<std::nullptr_t, void*, FInstancedStruct*, FSharedStruct*, FLuaScriptStructMemory*, FLuaInstancedStructMemory*> FLuaScriptStructMemoryData;
+
+
 struct UNREALLUA_API FLuaScriptStruct : public FLuaScriptStructBase
 {
+	enum EInstancedStruct {};
+	enum ESharedStruct {};
 	static void RegisterUsertype(sol::state_view& lua);
 	
 	FLuaScriptStruct();
 
 	FLuaScriptStruct(const UScriptStruct* metaStruct);
+	
 	//Used by Lua-imported UStruct (FUStruct) call-operator to construct a new FLuaScriptStruct 
 	FLuaScriptStruct(const FLuaUStruct* metaData, sol::variadic_args args);
 
@@ -34,6 +69,7 @@ struct UNREALLUA_API FLuaScriptStruct : public FLuaScriptStructBase
 	FLuaScriptStruct(FStructProperty* prop, const void* sourcePtr);
 
 	virtual ~FLuaScriptStruct() override;
+	bool IsInitialized() const;
 
 	static sol::object MakeFromPath(const std::string& path, sol::this_state lua);
 
@@ -46,8 +82,7 @@ struct UNREALLUA_API FLuaScriptStruct : public FLuaScriptStructBase
 		if(this != &other)
 		{
 			this->Reset();
-			this->Data = other.Data;
-			this->bOwnsMemory = other.OwnsMemory();
+			this->MemoryVariant = other.MemoryVariant;
 			this->PropertyMapping = other.PropertyMapping;
 			if(this->OwnsMemory())
 			{
@@ -92,14 +127,10 @@ struct UNREALLUA_API FLuaScriptStruct : public FLuaScriptStructBase
 
 	virtual const UScriptStruct* GetScriptStruct() const override;
 
-	union
-	{
-		void* Data = nullptr;
-		FLuaScriptStructMemory* LuaMemory;
-	};
-	bool bOwnsMemory = false;
-	//bool bIsConst = false;
+	TVariant<std::nullptr_t, void*, FLuaScriptStructMemory*> MemoryVariant = {};
 };
+
+static_assert(sizeof(FLuaScriptStruct) <= 32);
 
 /** type traits to cover the custom aspects of a script struct **/
 

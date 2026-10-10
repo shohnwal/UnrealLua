@@ -10,81 +10,8 @@
 #include "StringHandling/UnrealLuaStringEntryKey.h"
 #include "LuaScriptValue.generated.h"
 
-/**
- * 
- */
-
-/*
-cpp// Instead of Array of Structures (AoS)
-struct FItem { uint64_t Key; uint8_t Data[56]; };
-TArray<FItem> BadForSIMD;
-
-// Use Structure of Arrays (SoA) for your container
-struct alignas(64) FItemContainer 
-{
-	// 50 keys * 8 bytes = 400 bytes (Fits in ~6 cache lines)
-	TArray<uint64_t> Keys; 
-	
-	// 50 data blocks * 56 bytes = 2800 bytes
-	TArray<FMyDataPayload> Data; 
-};
-
-
-
-#include <vector>
-#include <cstdint>
-#include <optional>
-
-struct FMyDataPayload { uint8_t Bytes[56]; };
-
-struct FFastLookupContainer 
-{
-	std::vector<uint64_t> Keys;
-	std::vector<FMyDataPayload> Data;
-
-	// Returns the payload if found
-	std::optional<FMyDataPayload> FindItem(uint64_t TargetKey) const 
-	{
-		const size_t Size = Keys.size();
-		if (Size == 0) return std::nullopt;
-
-		// Hint to the compiler that sizes match and memory doesn't overlap
-		const uint64_t* __restrict KeyPtr = Keys.data();
-		size_t FoundIndex = Size; 
-
-		// 1. Force Auto-Vectorization
-		// On modern compilers, this loop compiles into AVX vector instructions.
-		// It checks 4 keys (AVX2) or 8 keys (AVX-512) per CPU cycle.
-		#pragma omp simd // Or #pragma loop(hint_parallel) for MSVC
-		for (size_t i = 0; i < Size; ++i)
-		{
-			if (KeyPtr[i] == TargetKey)
-			{
-				// We don't break! Breaking breaks SIMD pipelines.
-				// We just record the index. (Assumes keys are unique)
-				FoundIndex = i; 
-			}
-		}
-
-		// 2. O(1) Instant hit for the data lookup
-		if (FoundIndex < Size)
-		{
-			return Data[FoundIndex];
-		}
-
-		return std::nullopt;
-	}
-};
-
-Switching to that Structure of Arrays (SoA) pattern will give you fantastic performance at that scale, and your hardware will absolutely fly through those lookups.
-Since you are implementing this in C++ or Unreal Engine, remember to make sure your containers don't shrink and reallocate memory unnecessarily, as keeping that capacity stable
-keeps your cache access perfectly predictable.If you ever need to profile this code later or want to look into Unreal Engine's specific SIMD math types (like VectorRegister) or 
-TInlineAllocator setups to keep those arrays on the stack, just reach out.
- */
-
 class SWidget;
-//While it might have been easier to maintain, if this derived from FUnrealLuaNameEntryKey,
-//we'd be getting byte padding, which would make FLuaScriptValue too large
+
 struct UNREALLUA_API FLuaScriptValueKey
 {
 	FLuaScriptValueKey() {}

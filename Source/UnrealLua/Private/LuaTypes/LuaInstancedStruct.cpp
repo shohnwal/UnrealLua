@@ -41,7 +41,7 @@ void FLuaInstancedStructMemory::AddRef()
 int32 FLuaInstancedStructMemory::RemoveRef()
 {
 	this->RefCount--;
-	verifyf(this->RefCount >= 0, TEXT("RefCount of FLuaScriptStructMemory %p is %d"), this, this->RefCount);
+	verifyf(this->RefCount >= 0, TEXT("RefCount of FLuaInstancedStructMemory %p is %d"), this, this->RefCount);
 	return this->RefCount;
 }
 
@@ -184,7 +184,6 @@ int32 FLuaInstancedStruct::RemoveRef()
 	{
 		if(this->Data.Get<FLuaInstancedStructMemory*>()->RemoveRef() == 0)
 		{
-			//this->LuaInstancedStructMemory->~FLuaScriptStructMemory();
 			delete this->Data.Get<FLuaInstancedStructMemory*>();
 			this->Data.Emplace<std::nullptr_t>();
 		}

@@ -48,7 +48,7 @@ namespace UnrealLua::Test
 		const FLuaScriptStruct& ssRef = checkObj.as<FLuaScriptStruct&>();
 		verify(ssRef.OwnsMemory());
 		verify(ssRef.GetScriptStruct() == FTestScriptStruct::StaticStruct());
-		verify(ssRef.Data != nullptr);
+		verify(ssRef.IsValid());
 
 		FTestScriptStruct ret = lua[key];
 		verify(ret.x == ss.x);
@@ -84,7 +84,7 @@ namespace UnrealLua::Test
 		const FLuaScriptStruct& ssRef = checkObj.as<FLuaScriptStruct&>();
 		verify(!ssRef.OwnsMemory());
 		verify(ssRef.GetScriptStruct() == FTestScriptStruct::StaticStruct());
-		verify(ssRef.Data != nullptr);
+		verify(ssRef.IsValid());
 
 		FTestScriptStruct ret = lua[key];
 		verify(ret.x == ss.x);

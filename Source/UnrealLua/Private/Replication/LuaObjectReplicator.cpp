@@ -7,7 +7,7 @@
 
 void ULuaObjectReplicator::PostInitProperties()
 {
-	this->Replicator.OuterReplicator = this;
+	//this->Replicator.OuterReplicator = this;
 	UObject::PostInitProperties();
 }
 
@@ -26,7 +26,7 @@ void ULuaObjectReplicator::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 
 void ULuaObjectReplicator::SetScriptOwner(const FWeakRegisteredLuaNetObjectInfo& info)
 {
-	this->Replicator.OuterReplicator = this;
+	//this->Replicator.OuterReplicator = this;
 	this->ScriptOwnerInfo = info;
 	MARK_PROPERTY_DIRTY_FROM_NAME(ULuaObjectReplicator, ScriptOwnerInfo, this);
 }
@@ -61,7 +61,7 @@ void ULuaObjectReplicator::PreDestroyFromReplication()
 	ULuaScriptReplicationComponent* cmp = this->GetReplicationComponent();
 	if(cmp)
 	{
-		cmp->RemoveLuaReplicator(this);
+		//cmp->RemoveLuaReplicator(this);
 	}
 	UObject::PreDestroyFromReplication();
 }

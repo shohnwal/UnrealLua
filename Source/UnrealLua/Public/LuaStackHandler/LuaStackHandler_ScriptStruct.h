@@ -36,7 +36,7 @@ inline bool sol_lua_check(sol::types<Arg>, lua_State* L, int index, Handler&& ha
 	if(success)
 	{
 		const FLuaScriptStruct& w = sol::stack::get<FLuaScriptStruct&>(L, absolute_index);
-		if(w.GetScriptStruct() == nullptr || w.GetScriptStruct() != Arg::StaticStruct() || w.Data == nullptr)
+		if(!w.IsValid() || w.GetScriptStruct() != Arg::StaticStruct())
 		{
 			success = false;;
 		}
@@ -59,7 +59,7 @@ inline bool sol_lua_check(sol::types<Arg&>, lua_State* L, int index, Handler&& h
 	if(success)
 	{
 		const FLuaScriptStruct& w = sol::stack::get<FLuaScriptStruct&>(L, absolute_index);
-		if(w.GetScriptStruct() == nullptr || w.GetScriptStruct() != Arg::StaticStruct() || w.Data == nullptr)
+		if(!w.IsValid() || w.GetScriptStruct() != Arg::StaticStruct())
 		{
 			success = false;
 		}
@@ -83,7 +83,7 @@ inline bool sol_lua_check(sol::types<Arg>, lua_State* L, int index, Handler&& ha
 	if(success)
 	{
 		const FLuaScriptStruct& w = sol::stack::get<FLuaScriptStruct&>(L, absolute_index);
-		if(w.GetScriptStruct() == nullptr || w.GetScriptStruct() != std::remove_pointer_t<Arg>::StaticStruct() || w.Data == nullptr)
+		if(!w.IsValid() || w.GetScriptStruct() != std::remove_pointer_t<Arg>::StaticStruct())
 		{
 			success = false;;
 		}
@@ -187,9 +187,9 @@ inline Arg* sol_lua_get(sol::types<Arg*>, lua_State* L, int index, sol::stack::r
 	const FLuaScriptStruct& a = sol::stack::get<FLuaScriptStruct&>(L, absolute_index);
 	tracking.use(1);
 	
-	if(a.GetScriptStruct() == Arg::StaticStruct() && a.Data != nullptr)
+	if(a.GetScriptStruct() == Arg::StaticStruct() && a.GetMemory() != nullptr)
 	{
-		return reinterpret_cast<Arg*>(a.Data);
+		return reinterpret_cast<Arg*>(a.GetMemory());
 	}
 	return nullptr;	
 }

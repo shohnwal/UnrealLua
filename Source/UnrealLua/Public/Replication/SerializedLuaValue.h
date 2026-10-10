@@ -44,6 +44,11 @@ struct UNREALLUA_API FNetSerializedLuaValue : public FFastArraySerializerItem
 	bool IsReplicatedObjectEntry() const;
 	
 	UObject* ResolveUObject(ULuaScriptReplicationComponent* owningComponent);
+	
+	bool operator==(const FNetSerializedLuaValue& other) const
+	{
+		return this->ValueOwnerID == other.ValueOwnerID && this->RepLayoutPropertyIndex == other.RepLayoutPropertyIndex && this->LuaValue == other.LuaValue;
+	}
 	/**
 	 * Optional functions you can implement for client side notification of changes to items;
 	 * Parameter type can match the type passed as the 2nd template parameter in associated call to FastArrayDeltaSerialize

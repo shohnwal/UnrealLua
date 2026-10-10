@@ -130,7 +130,7 @@ typedef TLuaVariant<
 	FLuaCoroutineHandle,
 	FLuaScriptDelegate,
 	FLuaScriptMulticastDelegate,
-	FWeakRegisteredLuaNetObjectInfo,
+	FRegisteredLuaNetObjectInfo,
 	UnrealLua::DeadValue
 > LuaValueData;
 

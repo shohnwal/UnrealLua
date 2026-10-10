@@ -1,10 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "LuaGCObject.h"
-#include "Misc/TVariant.h"
 #include "sol/sol.hpp"
-#include "UObject/ObjectPtr.h"
-#include "StructUtils/SharedStruct.h"
 
 struct FSharedStruct;
 struct FInstancedStruct;
@@ -12,34 +9,6 @@ struct FLuaInstancedStructMemory;
 struct FLuaValue;
 struct FUStructPropertyMapping;
 struct FHashedFieldMapping;
-
-struct UNREALLUA_API FLuaScriptStructMemory : public FLuaGCObject
-{
-	FLuaScriptStructMemory(const UScriptStruct* ss, const void* memToCopyFrom);
-	virtual ~FLuaScriptStructMemory() override;
-
-	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
-	void AddRef();
-	int32 RemoveRef();
-
-	static FLuaScriptStructMemory* Allocate(const UScriptStruct* InScriptStruct, const void* memToCopyFrom);
-
-	uint8* GetMemory() const;
-	const UScriptStruct* GetScriptStruct() const;
-	TObjectPtr<const UScriptStruct> ScriptStruct = nullptr;
-	int32 RefCount = 0;
-	uint8 Data[];
-};
-
-/*
- std::nullptr_t						- uninitialized
- void*								- native struct property memory ptr
- FInstancedStruct*					- native FInstanced struct property mem ptr
- FSharedStruct						- native FInstanced struct property mem ptr
- FLuaScriptStructMemory*			- Lua allocated script struct
- FLuaInstancedScriptStructMemory*	- Lua allocated instanced script struct
- */
-typedef TVariant<std::nullptr_t, void*, FInstancedStruct*, FSharedStruct, FLuaScriptStructMemory*, FLuaInstancedStructMemory*> FLuaScriptStructMemoryData;
 
 struct UNREALLUA_API FLuaScriptStructBase
 {

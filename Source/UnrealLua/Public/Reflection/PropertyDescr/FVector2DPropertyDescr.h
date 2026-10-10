@@ -218,8 +218,8 @@ inline void FVector2DPropertyDescr::SetPropertyValue(const TSetPropertyValuePara
 	{
 		FLuaScriptStruct& ss = params.LuaValue.template as<FLuaScriptStruct&>();
 		//We already know the ScriptStruct is Vector2D::ScripStruct from the LUT check
-		verify(ss.Data != nullptr);
-		vec = *reinterpret_cast<FVector2D*>(ss.Data);
+		verify(ss.IsValid());
+		vec = *reinterpret_cast<FVector2D*>(ss.GetMemory());
 	}
 	else if(params.LuaValue.get_type() == sol::type::table)
 	{
