@@ -20,7 +20,7 @@ Main Features:
 - A Lua-based compiler able to create new UClasses, UScriptStructs and UEnums from Lua scripts that can be used as a base for Blueprints
 
 Future plans:
-- Finishing Lua syntax parser with full Intellisense support for reflected Unreal Engine types
+- Finishing Lua parser for syntax highlighting with full Intellisense support for reflected Unreal Engine types
 - Reimplementation of Lua VM for full multithreading capabilities
 - Unreal Engine 6 support
 - Mass Entity Framework support
